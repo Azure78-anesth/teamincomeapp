@@ -404,11 +404,11 @@ with tab3:
                         elif tgt["type"] == "location":
                             delete_row("locations", tgt["id"])
                     close_confirm()
-                    st.experimental_rerun()
+                    st.rerun()
             with c2:
                 if st.button("❌ 취소", use_container_width=True):
                     close_confirm()
-                    st.experimental_rerun()
+                    st.rerun()
 
     # 팀원 관리
     st.markdown("### 👤 팀원 관리")
@@ -441,7 +441,7 @@ with tab3:
                         ia = next(j for j,x in enumerate(orig) if x["id"]==a_id)
                         ib = next(j for j,x in enumerate(orig) if x["id"]==b_id)
                         swap_order("team_members", ia, ib)
-                        st.experimental_rerun()
+                        st.rerun()
             with c3:
                 if st.button("▼", key=f"member_down_{m['id']}", disabled=(i==len(tm)-1)):
                     if i < len(tm)-1:
@@ -452,11 +452,11 @@ with tab3:
                         ia = next(j for j,x in enumerate(orig) if x["id"]==a_id)
                         ib = next(j for j,x in enumerate(orig) if x["id"]==b_id)
                         swap_order("team_members", ia, ib)
-                        st.experimental_rerun()
+                        st.rerun()
             with c4:
                 if st.button("🗑️", key=f"member_del_{m['id']}"):
                     open_confirm("member", m["id"], m["name"], "delete")
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.info("등록된 팀원이 없습니다.")
 
@@ -494,7 +494,7 @@ with tab3:
                         ia = next(j for j,x in enumerate(orig) if x["id"]==a_id)
                         ib = next(j for j,x in enumerate(orig) if x["id"]==b_id)
                         swap_order("locations", ia, ib)
-                        st.experimental_rerun()
+                        st.rerun()
             with c4:
                 if st.button("▼", key=f"loc_down_{l['id']}", disabled=(i==len(locs)-1)):
                     if i < len(locs)-1:
@@ -505,11 +505,11 @@ with tab3:
                         ia = next(j for j,x in enumerate(orig) if x["id"]==a_id)
                         ib = next(j for j,x in enumerate(orig) if x["id"]==b_id)
                         swap_order("locations", ia, ib)
-                        st.experimental_rerun()
+                        st.rerun()
             with c5:
                 if st.button("🗑️", key=f"loc_del_{l['id']}"):
                     open_confirm("location", l["id"], l["name"], "delete")
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.info("등록된 업체가 없습니다.")
 
