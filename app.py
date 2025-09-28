@@ -136,49 +136,60 @@ def delete_row(table: str, id_value: str):
 
 def ensure_order(list_key: str):
     """
-    리스트의 order를 0..n-1로 '정규화'합니다.
-    - 누락/중복/전부 0이어도 순서를 다시 부여
-    - Supabase 연결 시 DB에도 반영
+    리스트의 order를 0..n-1로 재부여하여 정규화.
+    DB(Supabase)에도 반영하여 새로고침에도 유지.
     """
     lst = st.session_state.get(list_key, [])
-    # 1) 현재 값 기준으로 임시 정렬
+    # 현재 order 기준 임시 정렬
     lst_sorted = sorted(lst, key=lambda x: x.get("order", 0))
-    # 2) 0..n-1 재부여
     changed = False
     for i, x in enumerate(lst_sorted):
         if x.get("order") != i:
             x["order"] = i
             changed = True
 
-    if changed:
-        st.session_state[list_key] = lst_sorted
-        if sb:
-            table = "team_members" if list_key == "team_members" else "locations"
-            try:
-                for x in lst_sorted:
-                    sb.table(table).update({"order": x["order"]}).eq("id", x["id"]).execute()
-            except Exception:
-                st.warning("order 정규화 저장 실패(네트워크?) — 화면에만 반영되었습니다.")
-    else:
-        st.session_state[list_key] = lst_sorted
+    st.session_state[list_key] = lst_sorted
+    if changed and sb:
+        table = "team_members" if list_key == "team_members" else "locations"
+        try:
+            for x in lst_sorted:
+                sb.table(table).update({"order": x["order"]}).eq("id", x["id"]).execute()
+        except Exception:
+            st.warning(f"{table} order 정규화 저장 실패(네트워크/권한)")
+
 
 
 def swap_order(list_key: str, idx_a: int, idx_b: int):
+    """
+    보이는 리스트(정렬된)에서의 인덱스를 기준으로 순서를 교환.
+    1) 세션에서 교환
+    2) DB 업데이트(있으면)
+    3) load_data()로 다시 읽고 ensure_order()로 재정렬
+    4) rerun
+    """
     lst = st.session_state[list_key]
+    # 1) 세션에서 교환
     a, b = lst[idx_a], lst[idx_b]
-    a["order"], b["order"] = b.get("order", 0), a.get("order", 0)
+    a_order, b_order = a.get("order", 0), b.get("order", 0)
+    a["order"], b["order"] = b_order, a_order
     st.session_state[list_key] = sorted(lst, key=lambda x: x["order"])
 
+    # 2) DB에 저장
     if sb:
         table = "team_members" if list_key == "team_members" else "locations"
         try:
             sb.table(table).update({"order": a["order"]}).eq("id", a["id"]).execute()
             sb.table(table).update({"order": b["order"]}).eq("id", b["id"]).execute()
         except Exception:
-            st.warning("순서 저장 실패(네트워크?)")
+            st.warning("순서 저장 실패(네트워크/권한) — 화면에는 반영됐지만 새로고침 시 되돌 수 있음")
 
-    # ← 이 줄 추가: 혹시 모를 중복 방지
+    # 3) DB 기준으로 다시 로드 + 정규화
+    load_data()
     ensure_order(list_key)
+
+    # 4) 화면 갱신
+    st.rerun()
+
 
 # ---------- UI ----------
 st.title("팀 수입 관리 대시보드")
