@@ -147,9 +147,27 @@ def ensure_order(list_key: str):
     st.session_state[list_key] = sorted(st.session_state[list_key], key=lambda x: x.get("order", 0))
 
 def swap_order(list_key: str, idx_a: int, idx_b: int):
+    """
+    세션 상태에서 order를 서로 바꾸고,
+    Supabase 연결 시 DB의 order도 함께 업데이트하여 새로고침에도 순서 유지.
+    """
     lst = st.session_state[list_key]
-    lst[idx_a]["order"], lst[idx_b]["order"] = lst[idx_b]["order"], lst[idx_a]["order"]
+    a = lst[idx_a]
+    b = lst[idx_b]
+
+    # swap in session
+    a_order, b_order = a.get("order", 0), b.get("order", 0)
+    a["order"], b["order"] = b_order, a_order
     st.session_state[list_key] = sorted(lst, key=lambda x: x["order"])
+
+    # persist to Supabase (if connected)
+    if sb:
+        table = "team_members" if list_key == "team_members" else "locations"
+        try:
+            sb.table(table).update({"order": a["order"]}).eq("id", a["id"]).execute()
+            sb.table(table).update({"order": b["order"]}).eq("id", b["id"]).execute()
+        except Exception:
+            st.warning("순서 저장에 실패했습니다(네트워크?). 화면에는 반영됐지만 새로고침 시 되돌아갈 수 있어요.")
 
 # ---------- UI ----------
 st.title("팀 수입 관리 대시보드")
