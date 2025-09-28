@@ -2,6 +2,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
+from zoneinfo import ZoneInfo  # 한국 시간대 지원
+NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
+
 from typing import List, Dict, Any
 
 # ============================
@@ -246,7 +249,7 @@ with tab1:
     st.subheader("수입 입력")
     col1, col2 = st.columns([1,1])
     with col1:
-        d = st.date_input("발생일", value=date.today(), format="YYYY-MM-DD")
+        d = st.date_input("발생일", value=NOW_KST.date(), format="YYYY-MM-DD")
         member_options = {m["name"]: m["id"] for m in st.session_state.team_members}
         member_name = st.selectbox("팀원", list(member_options.keys()) if member_options else ["(팀원을 먼저 추가하세요)"])
         member_id = member_options.get(member_name)
@@ -333,7 +336,7 @@ with tab2:
         df["day"] = df["date"].dt.strftime("%Y-%m-%d")
 
         years = sorted(df["year"].unique().tolist())
-        cur_year = datetime.now().year
+        cur_year = NOW_KST.year
         default_year = cur_year if cur_year in years else years[-1]
 
         c1, c2 = st.columns([3,2])
