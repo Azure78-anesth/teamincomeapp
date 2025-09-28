@@ -249,7 +249,21 @@ with tab1:
     st.subheader("수입 입력")
     col1, col2 = st.columns([1,1])
     with col1:
-        d = st.date_input("발생일", value=NOW_KST.date(), format="YYYY-MM-DD")
+       # 위젯 상태에 오늘(KST)을 유지하도록 동기화
+if "input_date" not in st.session_state:
+    st.session_state.input_date = NOW_KST.date()
+else:
+    # 오늘과 다르면 자동으로 오늘로 리셋(예: 하루가 바뀐 뒤)
+    if st.session_state.input_date != NOW_KST.date():
+        st.session_state.input_date = NOW_KST.date()
+
+d = st.date_input(
+    "발생일",
+    key="input_date",              # 상태 키 지정 (중요)
+    value=st.session_state.input_date,
+    format="YYYY-MM-DD"
+)
+
         member_options = {m["name"]: m["id"] for m in st.session_state.team_members}
         member_name = st.selectbox("팀원", list(member_options.keys()) if member_options else ["(팀원을 먼저 추가하세요)"])
         member_id = member_options.get(member_name)
