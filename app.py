@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 # ============================
 # Page & Global Styles
 # ============================
-st.set_page_config(page_title="팀 수입 관리 대시보드", layout="wide")
+st.set_page_config(page_title="팀 수입 관리 프로그램", layout="wide")
 
 st.markdown("""
 <style>
