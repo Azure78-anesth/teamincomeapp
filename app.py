@@ -135,16 +135,33 @@ def delete_row(table: str, id_value: str):
         st.session_state.locations = [r for r in st.session_state.locations if r["id"] != id_value]
 
 def ensure_order(list_key: str):
-    """세션 리스트에 order 필드가 없으면 부여하고 정렬."""
+    """
+    리스트의 order를 0..n-1로 '정규화'합니다.
+    - 누락/중복/전부 0이어도 순서를 다시 부여
+    - Supabase 연결 시 DB에도 반영
+    """
     lst = st.session_state.get(list_key, [])
+    # 1) 현재 값 기준으로 임시 정렬
+    lst_sorted = sorted(lst, key=lambda x: x.get("order", 0))
+    # 2) 0..n-1 재부여
     changed = False
-    for i, x in enumerate(lst):
-        if "order" not in x:
+    for i, x in enumerate(lst_sorted):
+        if x.get("order") != i:
             x["order"] = i
             changed = True
+
     if changed:
-        st.session_state[list_key] = lst
-    st.session_state[list_key] = sorted(st.session_state[list_key], key=lambda x: x.get("order", 0))
+        st.session_state[list_key] = lst_sorted
+        if sb:
+            table = "team_members" if list_key == "team_members" else "locations"
+            try:
+                for x in lst_sorted:
+                    sb.table(table).update({"order": x["order"]}).eq("id", x["id"]).execute()
+            except Exception:
+                st.warning("order 정규화 저장 실패(네트워크?) — 화면에만 반영되었습니다.")
+    else:
+        st.session_state[list_key] = lst_sorted
+
 
 def swap_order(list_key: str, idx_a: int, idx_b: int):
     """
