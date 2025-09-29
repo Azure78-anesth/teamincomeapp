@@ -321,15 +321,61 @@ with tab1:
 
 # ----- Tab2: 통계 -----
 with tab2:
-    st.markdown('<div class="block">', unsafe_allow_html=True)
     st.markdown("### 통계")
+
+    # 원본 데이터프레임 구성
+    def _name_from(_id: str, coll: list[dict]) -> str:
+        for x in coll:
+            if x["id"] == _id:
+                return x.get("name", "")
+        return ""
+
+    records = st.session_state.get("income_records", [])
+    if not records:
+        st.info("데이터가 없습니다. 먼저 [수입 입력]에서 데이터를 추가해 주세요.")
+        st.stop()
+
+    df = pd.DataFrame([
+        {
+            "date": r.get("date"),
+            "amount": r.get("amount"),
+            "member": _name_from(r.get("teamMemberId",""), st.session_state.team_members),
+            "location": _name_from(r.get("locationId",""), st.session_state.locations),
+            "category": next((l["category"] for l in st.session_state.locations if l["id"] == r.get("locationId")), ""),
+        } for r in records
+    ])
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).copy()
+    df["year"] = df["date"].dt.year.astype(int)
+    df["month"] = df["date"].dt.month.astype(int)
+    df["day"] = df["date"].dt.strftime("%Y-%m-%d")
+
+    # 연도 선택 (KST 기준 사용 가능)
+    try:
+        cur_year = NOW_KST.year  # 이미 위에서 정의했다면
+    except NameError:
+        cur_year = datetime.now().year
+
+    years = sorted(df["year"].unique().tolist())
+    default_year = cur_year if cur_year in years else years[-1]
+
+    c1, c2 = st.columns([3,2])
+    with c1:
+        year = st.selectbox("연도(연간 리셋/독립 집계)", years, index=years.index(default_year))
+    with c2:
+        st.caption("선택 연도 외 데이터는 저장만 유지(열람 전용)")
+
+    dfY = df[df["year"] == year].copy()
+    if dfY.empty:
+        st.warning(f"{year}년 데이터가 없습니다.")
+        st.stop()
 
     # ---- 탭 구분 ----
     tab_mem, tab_loc = st.tabs(["팀원별", "업장별"])
 
-    # ----- 팀원별 -----
+    # ===================== 팀원별 =====================
     with tab_mem:
-        st.markdown('<div class="block">', unsafe_allow_html=True)
         st.markdown("#### 팀원별 수입 통계")
 
         members = sorted([m for m in dfY["member"].dropna().unique().tolist() if m])
@@ -340,10 +386,8 @@ with tab2:
         )
 
         if member_select == "팀원 비교(전체)":
-            # 팀원별 연간 합계
-            annual_by_member = (
-                dfY.groupby("member", dropna=False, as_index=False)["amount"].sum()
-            )
+            # 팀원별 연간 합계 (순위 1부터, 인덱스 칸 숨김)
+            annual_by_member = dfY.groupby("member", dropna=False, as_index=False)["amount"].sum()
             annual_by_member.rename(columns={"member": "팀원", "amount": "연간 합계(만원)"}, inplace=True)
             annual_by_member.sort_values("연간 합계(만원)", ascending=False, inplace=True, kind="mergesort")
             annual_by_member["순위"] = range(1, len(annual_by_member) + 1)
@@ -364,7 +408,7 @@ with tab2:
                     column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
                 )
 
-            # 월 선택 → 보험/비보험 분리 + 총합 (비교용)
+            # 월 선택 → 보험/비보험 분리 + 총합
             months_avail_all = sorted(dfY["month"].unique().tolist())
             month_sel2 = st.selectbox("월 선택(보험/비보험 분리 보기)", months_avail_all,
                                       index=len(months_avail_all)-1)
@@ -421,11 +465,8 @@ with tab2:
                 column_config={"합계(만원)": st.column_config.NumberColumn(format="%.0f")}
             )
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ----- 업장별 -----
+    # ===================== 업장별 =====================
     with tab_loc:
-        st.markdown('<div class="block">', unsafe_allow_html=True)
         st.markdown("#### 업장별 통계 (보험/비보험 분리)")
 
         cat_sel = st.radio("분류 선택", ["보험","비보험"], horizontal=True)
@@ -474,9 +515,6 @@ with tab2:
             st.markdown("##### 월별 누적(YTD) 테이블(참고)")
             st.dataframe(ytd_wide, use_container_width=True, hide_index=True)
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================
 # Tab 3: 설정 (추가/삭제/순서 이동)
