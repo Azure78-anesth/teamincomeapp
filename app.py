@@ -396,7 +396,7 @@ if member_select == "팀원 비교(전체)":
 months_avail_all = sorted(dfY["month"].unique().tolist())
 
 
-                    months_avail_all = sorted(dfY["month"].unique().tolist())
+months_avail_all = sorted(dfY["month"].unique().tolist())
                     month_sel2 = st.selectbox("월 선택(보험/비보험 분리 보기)", months_avail_all,
                                               index=len(months_avail_all)-1)
 
