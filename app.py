@@ -387,11 +387,11 @@ annual_by_member.insert(0, "순위", range(1, len(annual_by_member) + 1))
 
 st.markdown("##### 연간 합계")
 st.dataframe(
-    annual_by_member[["순위","팀원","연간 합계(만원)"]],
+    annual_by_member.set_index("순위"),
     use_container_width=True,
-    hide_index=True,  # 👉 인덱스 칸 숨기기
     column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
 )
+
 
                     months_avail_all = sorted(dfY["month"].unique().tolist())
                     month_sel2 = st.selectbox("월 선택(보험/비보험 분리 보기)", months_avail_all,
