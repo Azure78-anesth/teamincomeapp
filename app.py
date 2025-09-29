@@ -393,7 +393,6 @@ if member_select == "팀원 비교(전체)":
         column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
     )
 
-
 months_avail_all = sorted(dfY["month"].unique().tolist())
 
 
