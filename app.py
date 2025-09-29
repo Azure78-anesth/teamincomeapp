@@ -364,9 +364,9 @@ with tab2:
         if dfY.empty:
             st.warning(f"{year}년 데이터가 없습니다.")
         else:
-            tab_mem, tab_loc = st.tabs(["팀원별", "업장별"])
+tab_mem, tab_loc = st.tabs(["팀원별", "업장별"])
 
-            # ----- 팀원별 -----
+# ----- 팀원별 -----
 with tab_mem:
     st.markdown('<div class="block">', unsafe_allow_html=True)
     st.markdown("#### 팀원별 수입 통계")
@@ -381,7 +381,6 @@ with tab_mem:
             dfY.groupby("member", dropna=False, as_index=False)["amount"].sum()
         )
         annual_by_member.rename(columns={"member": "팀원", "amount": "연간 합계(만원)"}, inplace=True)
-        # 안정적 내림차순 정렬 후 순위 1..N 부여
         annual_by_member.sort_values("연간 합계(만원)", ascending=False, inplace=True, kind="mergesort")
         annual_by_member["순위"] = range(1, len(annual_by_member) + 1)
         annual_by_member = annual_by_member[["순위", "팀원", "연간 합계(만원)"]]
@@ -395,7 +394,6 @@ with tab_mem:
                 column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
             )
         except TypeError:
-            # (폴백) hide_index 미지원 버전
             st.dataframe(
                 annual_by_member.set_index("순위"),
                 use_container_width=True,
@@ -461,50 +459,58 @@ with tab_mem:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-            # ----- 업장별 -----
-            with tab_loc:
-                st.markdown('<div class="block">', unsafe_allow_html=True)
-                st.markdown("#### 업장별 통계 (보험/비보험 분리)")
+# ----- 업장별 -----
+with tab_loc:
+    st.markdown('<div class="block">', unsafe_allow_html=True)
+    st.markdown("#### 업장별 통계 (보험/비보험 분리)")
 
-                cat_sel = st.radio("분류 선택", ["보험","비보험"], horizontal=True)
-                dfC = dfY[dfY["category"] == cat_sel].copy()
-                if dfC.empty:
-                    st.warning(f"{year}년 {cat_sel} 데이터가 없습니다.")
-                else:
-                    rank_mode = st.radio("랭킹 모드", ["연간 순위","월별 순위"], horizontal=True, index=0)
+    cat_sel = st.radio("분류 선택", ["보험","비보험"], horizontal=True)
+    dfC = dfY[dfY["category"] == cat_sel].copy()
+    if dfC.empty:
+        st.warning(f"{year}년 {cat_sel} 데이터가 없습니다.")
+    else:
+        rank_mode = st.radio("랭킹 모드", ["연간 순위","월별 순위"], horizontal=True, index=0)
 
-                    if rank_mode == "연간 순위":
-                        annual_loc = (dfC.groupby("location", dropna=False)["amount"].sum().reset_index()
-                                      .rename(columns={"location":"업체","amount":"연간합계(만원)"})
-                                      .sort_values("연간합계(만원)", ascending=False).reset_index(drop=True))
-                        annual_loc.insert(0, "순위", annual_loc.index + 1)
-                        st.markdown(f"##### {cat_sel} · 연간 순위")
-                        st.dataframe(annual_loc[["순위","업체","연간합계(만원)"]], use_container_width=True,
-                                     column_config={"연간합계(만원)": st.column_config.NumberColumn(format="%.0f")})
-                    else:
-                        months_avail_c = sorted(dfC["month"].unique().tolist())
-                        month_rank = st.selectbox("월 선택(해당 월만 표시)", months_avail_c, index=len(months_avail_c)-1)
-                        df_month = dfC[dfC["month"] == month_rank].copy()
-                        monthly_loc = (df_month.groupby("location", dropna=False)["amount"].sum().reset_index()
-                                       .rename(columns={"location":"업체","amount":"월합계(만원)"})
-                                       .sort_values("월합계(만원)", ascending=False).reset_index(drop=True))
-                        monthly_loc.insert(0, "순위", monthly_loc.index + 1)
-                        st.markdown(f"##### {cat_sel} · {month_rank}월 순위 (해당 월만)")
-                        st.dataframe(monthly_loc[["순위","업체","월합계(만원)"]], use_container_width=True,
-                                     column_config={"월합계(만원)": st.column_config.NumberColumn(format="%.0f")})
+        if rank_mode == "연간 순위":
+            annual_loc = (dfC.groupby("location", dropna=False)["amount"].sum().reset_index()
+                          .rename(columns={"location":"업체","amount":"연간합계(만원)"})
+                          .sort_values("연간합계(만원)", ascending=False).reset_index(drop=True))
+            annual_loc.insert(0, "순위", annual_loc.index + 1)
+            st.markdown(f"##### {cat_sel} · 연간 순위")
+            st.dataframe(
+                annual_loc[["순위","업체","연간합계(만원)"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={"연간합계(만원)": st.column_config.NumberColumn(format="%.0f")}
+            )
+        else:
+            months_avail_c = sorted(dfC["month"].unique().tolist())
+            month_rank = st.selectbox("월 선택(해당 월만 표시)", months_avail_c, index=len(months_avail_c)-1)
+            df_month = dfC[dfC["month"] == month_rank].copy()
+            monthly_loc = (df_month.groupby("location", dropna=False)["amount"].sum().reset_index()
+                           .rename(columns={"location":"업체","amount":"월합계(만원)"})
+                           .sort_values("월합계(만원)", ascending=False).reset_index(drop=True))
+            monthly_loc.insert(0, "순위", monthly_loc.index + 1)
+            st.markdown(f"##### {cat_sel} · {month_rank}월 순위 (해당 월만)")
+            st.dataframe(
+                monthly_loc[["순위","업체","월합계(만원)"]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={"월합계(만원)": st.column_config.NumberColumn(format="%.0f")}
+            )
 
-                    # 참고: 월별 누적(YTD)
-                    by_loc_month = (dfC.groupby(["location","month"], dropna=False)["amount"].sum()
-                                    .reset_index().sort_values(["location","month"]))
-                    by_loc_month["월누적(YTD)"] = by_loc_month.groupby("location")["amount"].cumsum()
-                    ytd_wide = by_loc_month.pivot(index="location", columns="month", values="월누적(YTD)").fillna(0.0)
-                    ytd_wide.columns = [f"{m}월" for m in ytd_wide.columns]
-                    ytd_wide = ytd_wide.sort_values(ytd_wide.columns[-1], ascending=False)
-                    ytd_wide.index.name = "업체"
-                    st.markdown("##### 월별 누적(YTD) 테이블(참고)")
-                    st.dataframe(ytd_wide, use_container_width=True)
-                    st.caption("※ '월별 누적(YTD)'은 해당 연도 1월부터 선택 월까지의 누적 합계입니다.")
-                st.markdown('</div>', unsafe_allow_html=True)
+        # 월별 누적(YTD) 참고 표
+        by_loc_month = (dfC.groupby(["location","month"], dropna=False)["amount"].sum()
+                        .reset_index().sort_values(["location","month"]))
+        by_loc_month["월누적(YTD)"] = by_loc_month.groupby("location")["amount"].cumsum()
+        ytd_wide = by_loc_month.pivot(index="location", columns="month", values="월누적(YTD)").fillna(0.0)
+        ytd_wide.columns = [f"{m}월" for m in ytd_wide.columns]
+        ytd_wide = ytd_wide.sort_values(ytd_wide.columns[-1], ascending=False)
+        ytd_wide.index.name = "업체"
+        st.markdown("##### 월별 누적(YTD) 테이블(참고)")
+        st.dataframe(ytd_wide, use_container_width=True, hide_index=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================
 # Tab 3: 설정 (추가/삭제/순서 이동)
