@@ -376,20 +376,20 @@ with tab2:
                                              ["팀원 비교(전체)"] + members, index=0)
 
                 if member_select == "팀원 비교(전체)":
-                    annual_by_member = (
-    dfY.groupby("member", dropna=False)["amount"]
-    .sum().sort_values(ascending=False).reset_index()
-    .rename(columns={"member":"팀원","amount":"연간 합계(만원)"})
-)
+    annual_by_member = (
+        dfY.groupby("member", dropna=False)["amount"]
+        .sum().sort_values(ascending=False).reset_index()
+        .rename(columns={"member":"팀원","amount":"연간 합계(만원)"})
+    )
 
-# 👉 순위 컬럼 추가 (1부터 시작)
-annual_by_member.insert(0, "순위", range(1, len(annual_by_member) + 1))
+    # 👉 순위 컬럼 추가 (1부터 시작)
+    annual_by_member.insert(0, "순위", range(1, len(annual_by_member) + 1))
 
-st.markdown("##### 연간 합계")
+    st.markdown("##### 연간 합계")
     st.dataframe(
         annual_by_member[["순위","팀원","연간 합계(만원)"]],
         use_container_width=True,
-        hide_index=True,
+        hide_index=True,  # 👉 인덱스 칸 숨기기
         column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
     )
 
