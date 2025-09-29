@@ -351,9 +351,8 @@ with tab2:
     df["month"] = df["date"].dt.month.astype(int)
     df["day"] = df["date"].dt.strftime("%Y-%m-%d")
 
-    # 연도 선택 (KST 기준 사용 가능)
     try:
-        cur_year = NOW_KST.year  # 이미 위에서 정의했다면
+        cur_year = NOW_KST.year
     except NameError:
         cur_year = datetime.now().year
 
@@ -386,7 +385,7 @@ with tab2:
         )
 
         if member_select == "팀원 비교(전체)":
-            # 팀원별 연간 합계 (순위 1부터, 인덱스 칸 숨김)
+            # 팀원별 연간 합계
             annual_by_member = dfY.groupby("member", dropna=False, as_index=False)["amount"].sum()
             annual_by_member.rename(columns={"member": "팀원", "amount": "연간 합계(만원)"}, inplace=True)
             annual_by_member.sort_values("연간 합계(만원)", ascending=False, inplace=True, kind="mergesort")
@@ -394,19 +393,12 @@ with tab2:
             annual_by_member = annual_by_member[["순위", "팀원", "연간 합계(만원)"]]
 
             st.markdown("##### 연간 합계")
-            try:
-                st.dataframe(
-                    annual_by_member,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
-                )
-            except TypeError:
-                st.dataframe(
-                    annual_by_member.set_index("순위"),
-                    use_container_width=True,
-                    column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
-                )
+            st.dataframe(
+                annual_by_member,
+                use_container_width=True,
+                hide_index=True,
+                column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
+            )
 
             # 월 선택 → 보험/비보험 분리 + 총합
             months_avail_all = sorted(dfY["month"].unique().tolist())
@@ -421,11 +413,13 @@ with tab2:
             pivot = pivot[["보험","비보험"]]
             pivot["총합(만원)"] = pivot["보험"] + pivot["비보험"]
             pivot = pivot.sort_values("총합(만원)", ascending=False)
-            pivot.index.name = "팀원"
+
+            # 👉 팀원 이름 복원
+            pivot = pivot.reset_index().rename(columns={"member": "팀원"})
 
             st.markdown(f"##### {month_sel2}월 · 보험/비보험 분리 + 총합")
             st.dataframe(
-                pivot,
+                pivot[["팀원","보험","비보험","총합(만원)"]],
                 use_container_width=True,
                 hide_index=True,
                 column_config={c: st.column_config.NumberColumn(format="%.0f")
@@ -511,9 +505,17 @@ with tab2:
             ytd_wide = by_loc_month.pivot(index="location", columns="month", values="월누적(YTD)").fillna(0.0)
             ytd_wide.columns = [f"{m}월" for m in ytd_wide.columns]
             ytd_wide = ytd_wide.sort_values(ytd_wide.columns[-1], ascending=False)
-            ytd_wide.index.name = "업체"
+
+            # 👉 업체 이름 복원
+            ytd_wide = ytd_wide.reset_index().rename(columns={"location": "업체"})
+
             st.markdown("##### 월별 누적(YTD) 테이블(참고)")
-            st.dataframe(ytd_wide, use_container_width=True, hide_index=True)
+            st.dataframe(
+                ytd_wide,
+                use_container_width=True,
+                hide_index=True
+            )
+
 
 
 # ============================
