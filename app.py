@@ -371,7 +371,7 @@ with tab2:
         st.stop()
 
     # ---- 탭 구분 ----
-    tab_mem, tab_loc = st.tabs(["팀원별", "업장별"])
+    tab_mem, tab_loc = st.tabs(["팀원별", "업체별"])
 
     # ===================== 팀원별 =====================
     with tab_mem:
@@ -461,7 +461,7 @@ with tab2:
 
     # ===================== 업장별 =====================
     with tab_loc:
-        st.markdown("#### 업장별 통계 (보험/비보험 분리)")
+        st.markdown("#### 업체별 통계 (보험/비보험 분리)")
 
         cat_sel = st.radio("분류 선택", ["보험","비보험"], horizontal=True)
         dfC = dfY[dfY["category"] == cat_sel].copy()
