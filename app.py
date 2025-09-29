@@ -392,7 +392,6 @@ st.dataframe(
     column_config={"연간 합계(만원)": st.column_config.NumberColumn(format="%.0f")}
 )
 
-
                     months_avail_all = sorted(dfY["month"].unique().tolist())
                     month_sel2 = st.selectbox("월 선택(보험/비보험 분리 보기)", months_avail_all,
                                               index=len(months_avail_all)-1)
