@@ -498,23 +498,7 @@ with tab2:
                     column_config={"월합계(만원)": st.column_config.NumberColumn(format="%.0f")}
                 )
 
-            # 월별 누적(YTD) 참고 표
-            by_loc_month = (dfC.groupby(["location","month"], dropna=False)["amount"].sum()
-                            .reset_index().sort_values(["location","month"]))
-            by_loc_month["월누적(YTD)"] = by_loc_month.groupby("location")["amount"].cumsum()
-            ytd_wide = by_loc_month.pivot(index="location", columns="month", values="월누적(YTD)").fillna(0.0)
-            ytd_wide.columns = [f"{m}월" for m in ytd_wide.columns]
-            ytd_wide = ytd_wide.sort_values(ytd_wide.columns[-1], ascending=False)
 
-            # 👉 업체 이름 복원
-            ytd_wide = ytd_wide.reset_index().rename(columns={"location": "업체"})
-
-            st.markdown("##### 월별 누적(YTD) 테이블(참고)")
-            st.dataframe(
-                ytd_wide,
-                use_container_width=True,
-                hide_index=True
-            )
 
 
 
