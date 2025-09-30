@@ -574,7 +574,7 @@ with tab2:
 with tab3:
     st.subheader("설정")
 
-    # 확인 팝업 상태 핸들러
+    # 확인 팝업 상태 핸들러 (기존 전역 상태 키를 그대로 사용)
     def open_confirm(_type, _id, _name, action):
         st.session_state["confirm_target"] = {"type": _type, "id": _id, "name": _name}
         st.session_state["confirm_action"] = action
@@ -583,9 +583,9 @@ with tab3:
         st.session_state["confirm_action"] = None
 
     # 팝업 UI
-    if st.session_state["confirm_target"]:
+    if st.session_state.get("confirm_target"):
         tgt = st.session_state["confirm_target"]
-        action = st.session_state["confirm_action"]
+        action = st.session_state.get("confirm_action")
         with st.container(border=True):
             st.warning(f"정말로 **{tgt['name']}** 을(를) **{'삭제' if action=='delete' else action}** 하시겠습니까?")
             c1, c2 = st.columns(2)
@@ -603,7 +603,7 @@ with tab3:
                     close_confirm()
                     st.rerun()
 
-    # 팀원 관리
+    # ------------------ 팀원 관리 ------------------
     st.markdown("### 👤 팀원 관리")
     with st.form("add_member_form", clear_on_submit=True):
         new_member = st.text_input("이름", "")
@@ -619,28 +619,44 @@ with tab3:
 
     if st.session_state.team_members:
         st.markdown("#### 팀원 목록 (순서 이동/삭제)")
-        tm = st.session_state.team_members  # ensure_order로 이미 정렬된 상태
+        tm = st.session_state.team_members  # 이미 order 정렬 가정
+
+        # 래퍼: 모바일에서도 가로 정렬 유지
+        st.markdown('<div class="inline-row">', unsafe_allow_html=True)
+
+        # 헤더 라인
         hc1, hc2, hc3, hc4 = st.columns([6, 1.2, 1.2, 1.2])
-        hc1.write("이름"); hc2.write("위로"); hc3.write("아래로"); hc4.write("삭제")
+        with hc1: st.markdown('<div class="hdr">이름</div>', unsafe_allow_html=True)
+        with hc2: st.markdown('<div class="hdr">위로</div>', unsafe_allow_html=True)
+        with hc3: st.markdown('<div class="hdr">아래로</div>', unsafe_allow_html=True)
+        with hc4: st.markdown('<div class="hdr">삭제</div>', unsafe_allow_html=True)
+
+        # 행들
         for i, m in enumerate(tm):
             c1, c2, c3, c4 = st.columns([6, 1.2, 1.2, 1.2])
-            c1.write(f"**{m['name']}**")
+            with c1:
+                st.markdown(f'<div class="row name-col">**{m["name"]}**</div>', unsafe_allow_html=True)
             with c2:
-                if st.button("▲", key=f"member_up_{m['id']}", disabled=(i==0)):
+                up_key = f"member_up_{m['id']}"
+                if st.button("▲", key=up_key, disabled=(i==0), use_container_width=True):
                     swap_order("team_members", i, i-1)
             with c3:
-                if st.button("▼", key=f"member_down_{m['id']}", disabled=(i==len(tm)-1)):
+                down_key = f"member_down_{m['id']}"
+                if st.button("▼", key=down_key, disabled=(i==len(tm)-1), use_container_width=True):
                     swap_order("team_members", i, i+1)
             with c4:
-                if st.button("🗑️", key=f"member_del_{m['id']}"):
+                del_key = f"member_del_{m['id']}"
+                if st.button("🗑️", key=del_key, use_container_width=True):
                     open_confirm("member", m["id"], m["name"], "delete")
                     st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("등록된 팀원이 없습니다.")
 
     st.divider()
 
-    # 업체 관리
+    # ------------------ 업체 관리 ------------------
     st.markdown("### 🏢 업체 관리")
     with st.form("add_location_form", clear_on_submit=True):
         loc_name = st.text_input("업체명", "")
@@ -657,22 +673,40 @@ with tab3:
 
     if st.session_state.locations:
         st.markdown("#### 업체 목록 (순서 이동/삭제)")
-        locs = st.session_state.locations  # ensure_order로 이미 정렬된 상태
-        h1,h2,h3,h4,h5 = st.columns([5.5,2.2,1.1,1.1,1.1])
-        h1.write("업체명"); h2.write("분류"); h3.write("위로"); h4.write("아래로"); h5.write("삭제")
+        locs = st.session_state.locations  # 이미 order 정렬 가정
+
+        st.markdown('<div class="inline-row">', unsafe_allow_html=True)
+
+        # 헤더 라인
+        h1, h2, h3, h4, h5 = st.columns([5.5, 2.2, 1.1, 1.1, 1.1])
+        with h1: st.markdown('<div class="hdr">업체명</div>', unsafe_allow_html=True)
+        with h2: st.markdown('<div class="hdr">분류</div>', unsafe_allow_html=True)
+        with h3: st.markdown('<div class="hdr">위로</div>', unsafe_allow_html=True)
+        with h4: st.markdown('<div class="hdr">아래로</div>', unsafe_allow_html=True)
+        with h5: st.markdown('<div class="hdr">삭제</div>', unsafe_allow_html=True)
+
+        # 행들
         for i, l in enumerate(locs):
-            c1, c2, c3, c4, c5 = st.columns([5.5,2.2,1.1,1.1,1.1])
-            c1.write(f"**{l['name']}**"); c2.write(l.get("category",""))
+            c1, c2, c3, c4, c5 = st.columns([5.5, 2.2, 1.1, 1.1, 1.1])
+            with c1:
+                st.markdown(f'<div class="row name-col">**{l["name"]}**</div>', unsafe_allow_html=True)
+            with c2:
+                st.write(l.get("category",""))
             with c3:
-                if st.button("▲", key=f"loc_up_{l['id']}", disabled=(i==0)):
+                up_key = f"loc_up_{l['id']}"
+                if st.button("▲", key=up_key, disabled=(i==0), use_container_width=True):
                     swap_order("locations", i, i-1)
             with c4:
-                if st.button("▼", key=f"loc_down_{l['id']}", disabled=(i==len(locs)-1)):
+                down_key = f"loc_down_{l['id']}"
+                if st.button("▼", key=down_key, disabled=(i==len(locs)-1), use_container_width=True):
                     swap_order("locations", i, i+1)
             with c5:
-                if st.button("🗑️", key=f"loc_del_{l['id']}"):
+                del_key = f"loc_del_{l['id']}"
+                if st.button("🗑️", key=del_key, use_container_width=True):
                     open_confirm("location", l["id"], l["name"], "delete")
                     st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("등록된 업체가 없습니다.")
 
