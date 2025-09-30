@@ -445,7 +445,8 @@ with tab2:
                 daily,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"금액(만원)
+                column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
+)
 
 # ▼ 날짜 선택 후, 해당 날짜의 원시 입력 내역(보험/비보험 구분 없이) 표시
 if not daily.empty:
