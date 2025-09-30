@@ -14,20 +14,62 @@ st.set_page_config(page_title="팀 수입 관리 프로그램", layout="wide")
 
 st.markdown("""
 <style>
-/* Global readability */
-html, body, [class*="css"]  { font-size: 16px; }
-h1, h2, h3 { letter-spacing: 0.2px; }
-section.main > div { padding-top: 0.6rem; }
-/* Card-like container */
+/* ===== Global readability ===== */
+html, body, [class*="css"] { font-size: 16px; }
+h1, h2, h3 { letter-spacing: .2px; }
+section.main > div { padding-top: .6rem; }
+
+/* Card-like container (원하면 특정 컨테이너에 class="block" 사용) */
 .block { padding: 1rem 1.25rem; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; }
-/* Align numeric */
+
+/* 숫자 정렬 */
 .mono { font-variant-numeric: tabular-nums; }
-/* Tables: keep single-line cells */
+
+/* 표: 한 줄 유지 */
 .dataframe td, .dataframe th { white-space: nowrap; }
-/* Tabs spacing */
-.stTabs [role="tablist"] { margin-bottom: 0.25rem; }
-/* Buttons */
-button[kind="secondary"], button[kind="primary"] { min-height: 38px }
+
+/* 탭 간격 */
+.stTabs [role="tablist"] { margin-bottom: .25rem; }
+
+/* 버튼 높이 기본값 */
+button[kind="secondary"], button[kind="primary"] { min-height: 38px; }
+
+/* ===== Mobile (<=640px) 기본 최적화 ===== */
+@media (max-width: 640px) {
+  /* 기본적으로 컬럼은 세로로 쌓기 */
+  div[data-testid="column"] { width: 100% !important; flex: 0 0 100% !important; }
+
+  /* 표/텍스트 살짝 축소 */
+  div[data-testid="stDataFrame"] * { font-size: .95rem; }
+  .stTabs [role="tab"] { font-size: .95rem; padding: .4rem .6rem; }
+  .stMetric-value { font-size: 1.15rem; }
+  .stMetric-label { font-size: .9rem; }
+}
+
+/* ===== 목록(팀원/업체) 섹션만 예외: 모바일에서도 가로 정렬 유지 ===== */
+/* 목록 컨테이너를 st.markdown('<div class="inline-row">', unsafe_allow_html=True) 로 감싸줌 */
+.inline-row [data-testid="column"]{
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+.inline-row .name-col{
+  min-width: 140px;
+  flex: 1 1 auto !important;
+}
+.inline-row .btn-col{
+  width: 60px !important;
+}
+.inline-row .stButton>button{
+  padding: 6px 0 !important;
+  height: 36px !important;
+}
+.inline-row .hdr{
+  font-weight: 700; margin-bottom: 6px;
+}
+.inline-row .row{
+  display: flex; align-items: center;
+  gap: .5rem; margin: .25rem 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
