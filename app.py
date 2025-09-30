@@ -341,8 +341,8 @@ with tab2:
             "amount": r.get("amount"),
             "member": _name_from(r.get("teamMemberId",""), st.session_state.team_members),
             "location": _name_from(r.get("locationId",""), st.session_state.locations),
-            "category": next((l["category"] for l in st.session_state.locations if l["id"] == r.get("locationId")), ""),
-        } for r in records
+            "category": next((l["category"] for l in st.session_state.locations if l["id"] == r.get("locationId")), ""),,
+            "memo": r.get("memo",""),} for r in records
     ])
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -445,7 +445,32 @@ with tab2:
                 daily,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
+                column_config={"금액(만원)
+
+# ▼ 날짜 선택 후, 해당 날짜의 원시 입력 내역(보험/비보험 구분 없이) 표시
+if not daily.empty:
+    sel_day = st.selectbox("상세 보기 날짜 선택", daily["날짜"].tolist())
+    details = dfM[(dfM["day"] == sel_day) & (dfM["month"] == month_sel)][
+        ["day","location","category","amount","memo"]
+    ].copy()
+    details.rename(columns={
+        "day":"날짜",
+        "location":"업체",
+        "category":"분류",
+        "amount":"금액(만원)",
+        "memo":"메모"
+    }, inplace=True)
+
+    st.markdown(f"##### {member_select} · {sel_day} 입력 내역")
+    st.dataframe(
+        details.sort_values(["업체","금액(만원)"], ascending=[True, False]),
+        use_container_width=True,
+        hide_index=True,
+        column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
+    )
+else:
+    st.info("선택한 월에 일별 데이터가 없습니다.")
+": st.column_config.NumberColumn(format="%.0f")}
             )
 
             monthly = (dfM.groupby("month", dropna=False)["amount"]
