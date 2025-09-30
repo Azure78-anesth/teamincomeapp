@@ -222,7 +222,7 @@ def swap_order(list_key: str, idx_a: int, idx_b: int):
 # ============================
 # Bootstrapping
 # ============================
-st.title("팀 수입 관리 프로그램")
+st.title("팀 수입 관리")
 if sb:
     st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
 else:
