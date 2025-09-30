@@ -323,6 +323,21 @@ with tab1:
 # Tab 2: 통계
 # ============================
 with tab2:
+    # --- 모바일 최적화 CSS (원한다면 상단 전역 CSS에 넣어도 OK) ---
+    st.markdown("""
+    <style>
+    html, body, [class*="css"] { font-size: 16px; }
+    .dataframe td, .dataframe th { white-space: nowrap; }
+    @media (max-width: 640px) {
+      div[data-testid="column"] { width: 100% !important; flex: 0 0 100% !important; }
+      .stTabs [role="tab"] { font-size: .95rem; padding: .4rem .6rem; }
+      div[data-testid="stDataFrame"] * { font-size: 0.95rem; }
+      .stMetric-value { font-size: 1.15rem; }
+      .stMetric-label { font-size: .9rem; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("### 통계")
 
     # 원본 데이터프레임 구성
@@ -355,7 +370,7 @@ with tab2:
     df["day"] = df["date"].dt.strftime("%Y-%m-%d")
 
     # 연도 선택
-    cur_year = NOW_KST.year
+    cur_year = NOW_KST.year if 'NOW_KST' in globals() else datetime.now().year
     years = sorted(df["year"].unique().tolist())
     default_year = cur_year if cur_year in years else years[-1]
 
@@ -385,7 +400,7 @@ with tab2:
         )
 
         if member_select == "팀원 비교(전체)":
-            # 팀원별 연간 합계
+            # 팀원별 연간 합계 (순위 1부터, 인덱스 숨김)
             annual_by_member = dfY.groupby("member", dropna=False, as_index=False)["amount"].sum()
             annual_by_member.rename(columns={"member": "팀원", "amount": "연간 합계(만원)"}, inplace=True)
             annual_by_member.sort_values("연간 합계(만원)", ascending=False, inplace=True, kind="mergesort")
@@ -412,8 +427,7 @@ with tab2:
                     pivot[col] = 0.0
             pivot = pivot[["보험","비보험"]]
             pivot["총합(만원)"] = pivot["보험"] + pivot["비보험"]
-            pivot = pivot.sort_values("총합(만원)", ascending=False)
-            pivot = pivot.reset_index().rename(columns={"member": "팀원"})
+            pivot = pivot.sort_values("총합(만원)", ascending=False).reset_index().rename(columns={"member":"팀원"})
 
             st.markdown(f"##### {month_sel2}월 · 보험/비보험 분리 + 총합")
             st.dataframe(
@@ -428,14 +442,36 @@ with tab2:
             # 특정 팀원 상세
             dfM = dfY[dfY["member"] == member_select].copy()
             months_avail = sorted(dfM["month"].unique().tolist()) or list(range(1,13))
-            month_sel = st.selectbox("월 선택(일별 상세용)", months_avail, index=len(months_avail)-1)
+            month_sel = st.selectbox("월 선택(일별 상세/요약)", months_avail, index=len(months_avail)-1)
 
-            k1,k2,k3 = st.columns([1,1,1])
-            k1.metric("연간 합계(만원)", f"{dfM['amount'].sum():,.0f}")
-            k2.metric(f"{month_sel}월 합계(만원)", f"{dfM.loc[dfM['month']==month_sel,'amount'].sum():,.0f}")
-            k3.metric("건수(연간)", int(len(dfM)))
+            # ---- (개인) 연간/월간 요약 지표: 보험/비보험/총합 + 건수 ----
+            dfY_member = dfY[dfY["member"] == member_select].copy()
+            y_ins  = dfY_member.loc[dfY_member["category"]=="보험",   "amount"].sum()
+            y_non  = dfY_member.loc[dfY_member["category"]=="비보험", "amount"].sum()
+            y_tot  = dfY_member["amount"].sum()
+            y_cnt  = len(dfY_member)
 
-            # ----- 일별 합계 -----
+            st.markdown("##### 연간 요약")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("연간 보험(만원)", f"{y_ins:,.0f}")
+            c2.metric("연간 비보험(만원)", f"{y_non:,.0f}")
+            c3.metric("연간 총합(만원)", f"{y_tot:,.0f}")
+            c4.metric("건수(연간)", f"{y_cnt:,}")
+
+            dfM_month = dfM[dfM["month"] == month_sel].copy()
+            m_ins  = dfM_month.loc[dfM_month["category"]=="보험",   "amount"].sum()
+            m_non  = dfM_month.loc[dfM_month["category"]=="비보험", "amount"].sum()
+            m_tot  = dfM_month["amount"].sum()
+            m_cnt  = len(dfM_month)
+
+            st.markdown(f"##### {month_sel}월 요약")
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("월 보험(만원)", f"{m_ins:,.0f}")
+            d2.metric("월 비보험(만원)", f"{m_non:,.0f}")
+            d3.metric("월 총합(만원)", f"{m_tot:,.0f}")
+            d4.metric("건수(월간)", f"{m_cnt:,}")
+
+            # ----- (특정 팀원) 월 선택 후 일별 합계 -----
             daily = (
                 dfM[dfM["month"] == month_sel]
                 .groupby("day", dropna=False)["amount"]
@@ -452,7 +488,7 @@ with tab2:
                 column_config={"금액(만원)": st.column_config.NumberColumn(format='%.0f')}
             )
 
-            # ----- 날짜 선택 → 상세 보기 -----
+            # ----- 날짜 선택 → 해당 날짜 상세(업체/분류/금액/메모) -----
             days_in_month = sorted(dfM.loc[dfM["month"] == month_sel, "day"].dropna().unique().tolist())
             if days_in_month:
                 sel_day = st.selectbox("상세 보기 날짜 선택", days_in_month, key="member_day_detail")
@@ -517,6 +553,7 @@ with tab2:
                     hide_index=True,
                     column_config={"월합계(만원)": st.column_config.NumberColumn(format='%.0f')}
                 )
+
 
 # ============================
 # Tab 3: 설정 (추가/삭제/순서 이동)
