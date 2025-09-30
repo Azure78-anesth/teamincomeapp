@@ -437,16 +437,55 @@ with tab2:
             k2.metric(f"{month_sel}월 합계(만원)", f"{dfM.loc[dfM['month']==month_sel,'amount'].sum():,.0f}")
             k3.metric("건수(연간)", int(len(dfM)))
 
-            daily = (dfM[dfM["month"]==month_sel].groupby("day", dropna=False)["amount"]
-                     .sum().reset_index().rename(columns={"day":"날짜","amount":"금액(만원)"})
-                     .sort_values("날짜"))
-            st.markdown(f"##### {member_select} · {month_sel}월 일별 합계")
-            st.dataframe(
-                daily,
-                use_container_width=True,
-                hide_index=True,
-                column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
+            # ----- (특정 팀원) 월 선택 후 일별 합계 -----
+daily = (
+    dfM[dfM["month"] == month_sel]
+    .groupby("day", dropna=False)["amount"]
+    .sum()
+    .reset_index()
+    .rename(columns={"day": "날짜", "amount": "금액(만원)"})
+    .sort_values("날짜")
 )
+
+st.markdown(f"##### {member_select} · {month_sel}월 일별 합계")
+st.dataframe(
+    daily,
+    use_container_width=True,
+    hide_index=True,
+    column_config={"금액(만원)": st.column_config.NumberColumn(format='%.0f')}
+)
+
+# ----- 날짜 선택 → 해당 날짜의 원시 입력 내역(업체/분류 무관) -----
+days_in_month = sorted(dfM.loc[dfM["month"] == month_sel, "day"].dropna().unique().tolist())
+
+if days_in_month:
+    sel_day = st.selectbox("상세 보기 날짜 선택", days_in_month, key="member_day_detail")
+
+    details = dfM[(dfM["day"] == sel_day) & (dfM["month"] == month_sel)][
+        ["day", "location", "category", "amount", "memo"]
+    ].copy()
+
+    details.rename(
+        columns={
+            "day": "날짜",
+            "location": "업체",
+            "category": "분류",
+            "amount": "금액(만원)",
+            "memo": "메모",
+        },
+        inplace=True,
+    )
+
+    st.markdown(f"##### {member_select} · {sel_day} 입력 내역")
+    st.dataframe(
+        details.sort_values(["업체", "금액(만원)"], ascending=[True, False]),
+        use_container_width=True,
+        hide_index=True,
+        column_config={"금액(만원)": st.column_config.NumberColumn(format='%.0f')}
+    )
+else:
+    st.info("선택한 월에 입력된 데이터가 없어 상세 보기를 표시할 수 없습니다.")
+
 
 # ▼ 날짜 선택 후, 해당 날짜의 원시 입력 내역(보험/비보험 구분 없이) 표시
 if not daily.empty:
