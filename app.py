@@ -323,7 +323,7 @@ with tab1:
 # Tab 2: 통계
 # ============================
 with tab2:
-    # --- 모바일 최적화 CSS (원하면 전역 CSS에 넣어도 OK) ---
+    # --- 모바일 최적화 CSS ---
     st.markdown("""
     <style>
     html, body, [class*="css"] { font-size: 16px; }
@@ -429,10 +429,10 @@ with tab2:
 
             st.markdown(f'##### {month_sel2}월 · 보험/비보험 분리 + 총합')
             st.dataframe(
-                pivot[['팀원','보험','비보험','총합(만원)']],
+                pivot[['팀원','총합(만원)','보험','비보험']],  # 총합을 앞으로
                 use_container_width=True,
                 hide_index=True,
-                column_config={c: st.column_config.NumberColumn(format='%.0f') for c in ['보험','비보험','총합(만원)']}
+                column_config={c: st.column_config.NumberColumn(format='%.0f') for c in ['총합(만원)','보험','비보험']}
             )
 
         else:
@@ -441,7 +441,7 @@ with tab2:
             months_avail = sorted(dfM['month'].unique().tolist()) or list(range(1,13))
             month_sel = st.selectbox('월 선택(일별 상세/요약)', months_avail, index=len(months_avail)-1)
 
-            # (A) 연간 요약: 금액(보험/비보험/총합) + 건수(보험/비보험/총합)
+            # (A) 연간 요약 표: 금액/건수 (총합 → 보험 → 비보험)
             dfY_member = dfY[dfY['member'] == member_select].copy()
             y_ins_amt = dfY_member.loc[dfY_member['category']=='보험',   'amount'].sum()
             y_non_amt = dfY_member.loc[dfY_member['category']=='비보험', 'amount'].sum()
@@ -451,16 +451,22 @@ with tab2:
             y_tot_cnt = int(len(dfY_member))
 
             st.markdown('##### 연간 요약')
-            c1,c2,c3 = st.columns(3)
-            c1.metric('연간 보험(만원)',   f'{y_ins_amt:,.0f}')
-            c2.metric('연간 비보험(만원)', f'{y_non_amt:,.0f}')
-            c3.metric('연간 총합(만원)',   f'{y_tot_amt:,.0f}')
-            c4,c5,c6 = st.columns(3)
-            c4.metric('연간 건수(보험)',   f'{y_ins_cnt:,}')
-            c5.metric('연간 건수(비보험)', f'{y_non_cnt:,}')
-            c6.metric('연간 건수(총합)',   f'{y_tot_cnt:,}')
+            annual_summary = pd.DataFrame({
+                "구분": ["총합", "보험", "비보험"],
+                "금액(만원)": [y_tot_amt, y_ins_amt, y_non_amt],
+                "건수": [y_tot_cnt, y_ins_cnt, y_non_cnt],
+            })
+            st.dataframe(
+                annual_summary,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "금액(만원)": st.column_config.NumberColumn(format="%.0f"),
+                    "건수": st.column_config.NumberColumn(format="%d"),
+                }
+            )
 
-            # (B) 월간 요약(선택 월): 금액 + 건수
+            # (B) 월간 요약 표: 금액/건수 (총합 → 보험 → 비보험)
             dfM_month = dfM[dfM['month'] == month_sel].copy()
             m_ins_amt = dfM_month.loc[dfM_month['category']=='보험',   'amount'].sum()
             m_non_amt = dfM_month.loc[dfM_month['category']=='비보험', 'amount'].sum()
@@ -470,14 +476,20 @@ with tab2:
             m_tot_cnt = int(len(dfM_month))
 
             st.markdown(f'##### {month_sel}월 요약')
-            d1,d2,d3 = st.columns(3)
-            d1.metric('월 보험(만원)',   f'{m_ins_amt:,.0f}')
-            d2.metric('월 비보험(만원)', f'{m_non_amt:,.0f}')
-            d3.metric('월 총합(만원)',   f'{m_tot_amt:,.0f}')
-            d4,d5,d6 = st.columns(3)
-            d4.metric('월 건수(보험)',   f'{m_ins_cnt:,}')
-            d5.metric('월 건수(비보험)', f'{m_non_cnt:,}')
-            d6.metric('월 건수(총합)',   f'{m_tot_cnt:,}')
+            monthly_summary = pd.DataFrame({
+                "구분": ["총합", "보험", "비보험"],
+                "금액(만원)": [m_tot_amt, m_ins_amt, m_non_amt],
+                "건수": [m_tot_cnt, m_ins_cnt, m_non_cnt],
+            })
+            st.dataframe(
+                monthly_summary,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "금액(만원)": st.column_config.NumberColumn(format="%.0f"),
+                    "건수": st.column_config.NumberColumn(format="%d"),
+                }
+            )
 
             # (C) 일별 합계 (선택 월)
             daily = (
