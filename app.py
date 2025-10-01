@@ -616,7 +616,7 @@ with tab2:
 with tab3:
     st.subheader("설정")
 
-    # ---------- 확인 팝업 핸들러 ----------
+    # ---------- 확인 팝업 핸들러(이 블록 내부 전용) ----------
     def open_confirm(_type, _id, _name, action):
         st.session_state["confirm_target"] = {"type": _type, "id": _id, "name": _name}
         st.session_state["confirm_action"] = action
@@ -648,7 +648,6 @@ with tab3:
 
     # ------------------ 팀원 관리 ------------------
     st.markdown("### 👤 팀원 관리")
-
     with st.form("add_member_form", clear_on_submit=True):
         new_member = st.text_input("이름", "")
         submitted = st.form_submit_button("팀원 추가")
@@ -664,10 +663,9 @@ with tab3:
 
     if st.session_state.team_members:
         st.markdown("#### 팀원 목록 (순서 이동/삭제)")
-
         tm = sorted(st.session_state.team_members, key=lambda x: x.get("order", 0))
 
-        # 모바일에서도 가로 정렬 유지
+        # 모바일에서도 가로 정렬 유지 (CSS의 .inline-row 필요)
         st.markdown('<div class="inline-row">', unsafe_allow_html=True)
 
         # 헤더
@@ -704,6 +702,7 @@ with tab3:
     # ------------------ 업체 관리 ------------------
     st.markdown("### 🏢 업체 관리")
 
+    # 추가 폼
     with st.form("add_location_form", clear_on_submit=True):
         loc_name = st.text_input("업체명", "")
         loc_cat  = st.selectbox("분류", ["보험", "비보험"])
@@ -714,23 +713,27 @@ with tab3:
                 next_order = (max([x.get("order", 0) for x in st.session_state.locations] or [-1]) + 1)
                 upsert_row(
                     "locations",
-                    {"id": lid, "name": loc_name.strip(), "category": loc_cat, "order": next_order}
+                    {"id": lid, "name": loc_name.strip(), "category": loc_cat.strip(), "order": next_order}
                 )
                 st.success("업체 추가 완료")
                 st.rerun()
             else:
                 st.error("업체명을 입력하세요.")
 
+    # 목록
     if st.session_state.locations:
         st.markdown("#### 업체 목록 (카테고리별 순서 이동/삭제)")
 
-        # 전체 목록은 order 기준 정렬
+        # order 정렬 + category 정규화(strip)
         locs_all = sorted(st.session_state.locations, key=lambda x: x.get("order", 0))
+        for l in locs_all:
+            if isinstance(l.get("category"), str):
+                l["category"] = l["category"].strip()
 
-        # ✅ 카테고리 필터(보기용): 해당 분류만 목록에 표시, 그 안에서만 이동
-        cat_view = st.radio("보기", ["보험", "비보험"], horizontal=True, key="loc_cat_view")
+        # ✅ 보기 라디오: 선택한 분류만 표시하고 그 안에서만 이동
+        cat_view = st.radio("보기(카테고리)", ["보험", "비보험"], horizontal=True, key="loc_cat_view")
 
-        # (마스터 인덱스, 레코드) 튜플 리스트로 필터링
+        # (마스터 인덱스, 레코드) 튜플로 필터링
         filtered = [(i, l) for i, l in enumerate(locs_all) if l.get("category") == cat_view]
 
         # 모바일에서도 가로 정렬 유지
@@ -744,30 +747,33 @@ with tab3:
         with h4: st.markdown('<div class="hdr">아래로</div>', unsafe_allow_html=True)
         with h5: st.markdown('<div class="hdr">삭제</div>', unsafe_allow_html=True)
 
-        # 헬퍼: 필터 범위 내에서만 이동 → 실제 저장은 마스터 인덱스끼리 swap
-        def move_in_category(filtered_idx_from: int, filtered_idx_to: int):
-            i_master_from = filtered[filtered_idx_from][0]
-            i_master_to   = filtered[filtered_idx_to][0]
+        # 헬퍼: 선택 분류 내에서만 이동 → 실제 저장은 마스터 인덱스끼리 swap
+        def move_in_category(k_from: int, k_to: int):
+            i_master_from = filtered[k_from][0]
+            i_master_to   = filtered[k_to][0]
             swap_order("locations", i_master_from, i_master_to)
             st.rerun()
 
         # 행
-        for k, (i_master, l) in enumerate(filtered):
-            c1, c2, c3, c4, c5 = st.columns([5.5, 2.2, 1.1, 1.1, 1.1])
-            with c1:
-                st.markdown(f'<div class="row name-col">**{l["name"]}**</div>', unsafe_allow_html=True)
-            with c2:
-                st.write(l.get("category", ""))
-            with c3:
-                if st.button("▲", key=f"loc_up_{l['id']}", disabled=(k == 0), use_container_width=True):
-                    move_in_category(k, k-1)
-            with c4:
-                if st.button("▼", key=f"loc_down_{l['id']}", disabled=(k == len(filtered)-1), use_container_width=True):
-                    move_in_category(k, k+1)
-            with c5:
-                if st.button("🗑️", key=f"loc_del_{l['id']}", use_container_width=True):
-                    open_confirm("location", l["id"], l["name"], "delete")
-                    st.rerun()
+        if not filtered:
+            st.info(f"'{cat_view}' 분류에 등록된 업체가 없습니다.")
+        else:
+            for k, (i_master, l) in enumerate(filtered):
+                c1, c2, c3, c4, c5 = st.columns([5.5, 2.2, 1.1, 1.1, 1.1])
+                with c1:
+                    st.markdown(f'<div class="row name-col">**{l["name"]}**</div>', unsafe_allow_html=True)
+                with c2:
+                    st.write(l.get("category", ""))
+                with c3:
+                    if st.button("▲", key=f"loc_up_{l['id']}", disabled=(k == 0), use_container_width=True):
+                        move_in_category(k, k-1)
+                with c4:
+                    if st.button("▼", key=f"loc_down_{l['id']}", disabled=(k == len(filtered)-1), use_container_width=True):
+                        move_in_category(k, k+1)
+                with c5:
+                    if st.button("🗑️", key=f"loc_del_{l['id']}", use_container_width=True):
+                        open_confirm("location", l["id"], l["name"], "delete")
+                        st.rerun()
 
         st.markdown('</div>', unsafe_allow_html=True)
     else:
