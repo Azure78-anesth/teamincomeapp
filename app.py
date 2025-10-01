@@ -141,6 +141,35 @@ hr, .stDivider{ margin:.75rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* ✅ inline-row 안에서는 모바일에서도 가로 레이아웃을 강제 */
+.inline-row [data-testid="stHorizontalBlock"]{
+  display: flex !important;
+  flex-wrap: nowrap !important;         /* 줄바꿈 금지 */
+  gap: .5rem !important;                /* 열 간격 */
+}
+.inline-row [data-testid="stHorizontalBlock"] > div[data-testid="column"]{
+  width: auto !important;
+  flex: 0 0 auto !important;            /* 내용 크기만큼 */
+}
+
+/* 이름 칸은 넓게, 버튼 칸은 고정폭 */
+.inline-row .name-col{ min-width: 160px; flex: 1 1 auto !important; }
+.inline-row .btn-col{ width: 56px !important; }
+
+/* 아이콘 버튼 크기 고정 */
+.inline-row .stButton > button{
+  width: 48px !important;
+  min-width: 48px !important;
+  height: 36px !important;
+  padding: 6px 0 !important;
+  border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 
 
 # ============================
