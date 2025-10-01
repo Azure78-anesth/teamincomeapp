@@ -65,13 +65,14 @@ button[kind], .stButton>button{
 div[data-testid="stDataFrame"]{
   border:1px solid var(--border); border-radius:12px; overflow:hidden;
 }
-div[data-testid="stDataFrame"] .css-1q8dd3e, /* sticky header 컨테이너 (버전별 class 백업) */
 div[data-testid="stDataFrame"] thead th{
   background: var(--soft) !important; position: sticky; top:0; z-index:2;
   border-bottom:1px solid var(--border) !important;
 }
 .dataframe td, .dataframe th{ white-space: nowrap; }
-div[data-testid="stDataFrame"] tbody tr:nth-child(even){ background: color-mix(in srgb, var(--soft) 60%, transparent); }
+div[data-testid="stDataFrame"] tbody tr:nth-child(even){
+  background: color-mix(in srgb, var(--soft) 60%, transparent);
+}
 
 /* Metric 위젯 */
 .stMetric{
@@ -83,50 +84,63 @@ div[data-testid="stDataFrame"] tbody tr:nth-child(even){ background: color-mix(i
 /* 안내/경고 컨테이너 */
 .stAlert{ border-radius:12px; }
 
-/* 모바일 기본 최적화 */
+/* 구분선 여백 */
+hr, .stDivider{ margin:.75rem 0; }
+
+/* 숫자 정렬용(원하면 class="mono" 붙여 사용) */
+.mono{ font-variant-numeric: tabular-nums; }
+
+/* ==============================
+   모바일 기본 최적화
+============================== */
 @media (max-width: 640px){
-  /* 대부분의 컬럼은 세로 스택 */
+  /* 기본: 컬럼은 세로 스택 */
   div[data-testid="column"]{ width:100% !important; flex:0 0 100% !important; }
 
-  /* 폰트/컴포넌트 사이즈 미세 조정 */
+  /* 폰트/컴포넌트 */
   body, [class*="css"]{ font-size: 15.5px; }
   .stTabs [role="tab"]{ font-size:.95rem; padding:.4rem .55rem; }
   .stMetric-value{ font-size:1.1rem; }
   .stMetric{ padding:.45rem .6rem; }
 
-  /* 표 글씨 살짝 축소 */
+  /* 표 글씨 약간 축소 */
   div[data-testid="stDataFrame"] *{ font-size:.95rem; }
 }
 
-/* 초소형 디바이스(<= 380px) 대응 */
+/* 초소형(<=380px) */
 @media (max-width: 380px){
   body, [class*="css"]{ font-size: 15px; }
   .stTabs [role="tab"]{ font-size:.9rem; padding:.35rem .5rem; }
 }
 
-/* 숫자 정렬용(원하면 class="mono" 붙여 사용) */
-.mono{ font-variant-numeric: tabular-nums; }
-
-/* 구분선 여백 */
-hr, .stDivider{ margin:.75rem 0; }
-
 /* ==============================
-   목록(팀원/업체) 영역: 모바일에서도 가로 정렬 유지
-   - 해당 섹션을 <div class="inline-row">로 감싸서 사용
+   목록(팀원/업체) 섹션: 모바일에서도 가로 정렬 유지
+   - 해당 섹션을 <div class="inline-row"> 로 감싸서 사용
 ============================== */
 .inline-row [data-testid="column"]{ width:auto !important; flex:0 0 auto !important; }
-.inline-row .name-col{ min-width: 140px; flex:1 1 auto !important; }
+.inline-row .name-col{ min-width:150px; flex:1 1 auto !important; }
 .inline-row .btn-col{ width:64px !important; }
-.inline-row .stButton>button{ padding:6px 0 !important; height:36px !important; }
+
+/* 아이콘 버튼 고정 폭/높이 (▲ ▼ 🗑️) */
+.inline-row .stButton > button{
+  width: 48px !important;
+  min-width: 48px !important;
+  height: 36px !important;
+  padding: 6px 0 !important;
+  border-radius: 10px;
+}
+
+/* 헤더/행 */
 .inline-row .hdr{ font-weight:700; margin-bottom:6px; }
 .inline-row .row{ display:flex; align-items:center; gap:.5rem; margin:.25rem 0; }
 
-/* 더 컴팩트 옵션(원하면 주석 해제)
-.inline-row .stButton > button{ padding:4px 0 !important; height:32px !important; }
+/* 더 컴팩트하게 쓰고 싶으면 아래 주석 해제
+.inline-row .stButton > button{ width:44px !important; min-width:44px !important; height:32px !important; padding:4px 0 !important; }
 .inline-row .row{ gap:.35rem; margin:.15rem 0; }
 */
 </style>
 """, unsafe_allow_html=True)
+
 
 
 # ============================
