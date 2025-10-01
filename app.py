@@ -117,57 +117,34 @@ hr, .stDivider{ margin:.75rem 0; }
    목록(팀원/업체) 섹션: 모바일에서도 가로 정렬 유지
    - 해당 섹션을 <div class="inline-row"> 로 감싸서 사용
 ============================== */
-.inline-row [data-testid="column"]{ width:auto !important; flex:0 0 auto !important; }
-.inline-row .name-col{ min-width:150px; flex:1 1 auto !important; }
-.inline-row .btn-col{ width:64px !important; }
+.inline-row [data-testid="stHorizontalBlock"]{
+  display:flex !important; flex-wrap:nowrap !important; gap:.5rem !important;
+}
+.inline-row [data-testid="column"]{
+  width:auto !important; flex:0 0 auto !important;
+}
+.inline-row .name-col{ min-width:160px; flex:1 1 auto !important; }
+
+/* 래퍼가 100% 폭을 먹는 것 차단 */
+.inline-row .stButton{ width:auto !important; display:inline-block !important; }
 
 /* 아이콘 버튼 고정 폭/높이 (▲ ▼ 🗑️) */
-.inline-row .stButton > button{
-  width: 48px !important;
-  min-width: 48px !important;
-  height: 36px !important;
-  padding: 6px 0 !important;
-  border-radius: 10px;
+.inline-row .stButton > button,
+.inline-row button[kind],
+.inline-row [data-testid="baseButton-secondary"],
+.inline-row [data-testid="baseButton-primary"]{
+  display:inline-flex !important; align-items:center; justify-content:center;
+  width:48px !important; min-width:48px !important;
+  height:36px !important; padding:6px 0 !important;
+  border-radius:10px;
 }
 
 /* 헤더/행 */
 .inline-row .hdr{ font-weight:700; margin-bottom:6px; }
 .inline-row .row{ display:flex; align-items:center; gap:.5rem; margin:.25rem 0; }
-
-/* 더 컴팩트하게 쓰고 싶으면 아래 주석 해제
-.inline-row .stButton > button{ width:44px !important; min-width:44px !important; height:32px !important; padding:4px 0 !important; }
-.inline-row .row{ gap:.35rem; margin:.15rem 0; }
-*/
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-/* ✅ inline-row 안에서는 모바일에서도 가로 레이아웃을 강제 */
-.inline-row [data-testid="stHorizontalBlock"]{
-  display: flex !important;
-  flex-wrap: nowrap !important;         /* 줄바꿈 금지 */
-  gap: .5rem !important;                /* 열 간격 */
-}
-.inline-row [data-testid="stHorizontalBlock"] > div[data-testid="column"]{
-  width: auto !important;
-  flex: 0 0 auto !important;            /* 내용 크기만큼 */
-}
-
-/* 이름 칸은 넓게, 버튼 칸은 고정폭 */
-.inline-row .name-col{ min-width: 160px; flex: 1 1 auto !important; }
-.inline-row .btn-col{ width: 56px !important; }
-
-/* 아이콘 버튼 크기 고정 */
-.inline-row .stButton > button{
-  width: 48px !important;
-  min-width: 48px !important;
-  height: 36px !important;
-  padding: 6px 0 !important;
-  border-radius: 10px;
-}
-</style>
-""", unsafe_allow_html=True)
 
 
 
@@ -884,6 +861,7 @@ with tab3:
         load_data()
         st.success("새로고침 완료")
         st.rerun()
+
 
 
 # ============================
