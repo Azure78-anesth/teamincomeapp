@@ -686,7 +686,7 @@ with tab2:
 with tab3:
     st.subheader("설정")
 
-    # ---------- 확인 팝업 핸들러(이 블록 내부 전용) ----------
+    # ---------- 확인 팝업 핸들러 ----------
     def open_confirm(_type, _id, _name, action):
         st.session_state["confirm_target"] = {"type": _type, "id": _id, "name": _name}
         st.session_state["confirm_action"] = action
@@ -703,7 +703,7 @@ with tab3:
             st.warning(f"정말로 **{tgt['name']}** 을(를) **{'삭제' if action=='delete' else action}** 하시겠습니까?")
             cc1, cc2 = st.columns(2)
             with cc1:
-                if st.button("✅ 확인", use_container_width=True):
+                if st.button("✅ 확인"):
                     if action == "delete":
                         if tgt["type"] == "member":
                             delete_row("team_members", tgt["id"])
@@ -712,12 +712,13 @@ with tab3:
                     close_confirm()
                     st.rerun()
             with cc2:
-                if st.button("❌ 취소", use_container_width=True):
+                if st.button("❌ 취소"):
                     close_confirm()
                     st.rerun()
 
     # ------------------ 팀원 관리 ------------------
     st.markdown("### 👤 팀원 관리")
+
     with st.form("add_member_form", clear_on_submit=True):
         new_member = st.text_input("이름", "")
         submitted = st.form_submit_button("팀원 추가")
@@ -739,7 +740,7 @@ with tab3:
         st.markdown('<div class="inline-row">', unsafe_allow_html=True)
 
         # 헤더
-        mh1, mh2, mh3, mh4 = st.columns([6, 1.2, 1.2, 1.2])
+        mh1, mh2, mh3, mh4 = st.columns([6, 1, 1, 1])
         with mh1: st.markdown('<div class="hdr">이름</div>', unsafe_allow_html=True)
         with mh2: st.markdown('<div class="hdr">위로</div>', unsafe_allow_html=True)
         with mh3: st.markdown('<div class="hdr">아래로</div>', unsafe_allow_html=True)
@@ -747,19 +748,19 @@ with tab3:
 
         # 행
         for i, m in enumerate(tm):
-            c1, c2, c3, c4 = st.columns([6, 1.2, 1.2, 1.2])
+            c1, c2, c3, c4 = st.columns([6, 1, 1, 1])
             with c1:
                 st.markdown(f'<div class="row name-col">**{m["name"]}**</div>', unsafe_allow_html=True)
             with c2:
-                if st.button("▲", key=f"member_up_{m['id']}", disabled=(i == 0), use_container_width=True):
+                if st.button("▲", key=f"member_up_{m['id']}", disabled=(i == 0)):
                     swap_order("team_members", i, i-1)
                     st.rerun()
             with c3:
-                if st.button("▼", key=f"member_down_{m['id']}", disabled=(i == len(tm)-1), use_container_width=True):
+                if st.button("▼", key=f"member_down_{m['id']}", disabled=(i == len(tm)-1)):
                     swap_order("team_members", i, i+1)
                     st.rerun()
             with c4:
-                if st.button("🗑️", key=f"member_del_{m['id']}", use_container_width=True):
+                if st.button("🗑️", key=f"member_del_{m['id']}"):
                     open_confirm("member", m["id"], m["name"], "delete")
                     st.rerun()
 
@@ -800,7 +801,7 @@ with tab3:
             if isinstance(l.get("category"), str):
                 l["category"] = l["category"].strip()
 
-        # ✅ 보기 라디오: 선택한 분류만 표시하고 그 안에서만 이동
+        # 보기 라디오: 선택 분류만 표시하고 그 안에서만 이동
         cat_view = st.radio("보기(카테고리)", ["보험", "비보험"], horizontal=True, key="loc_cat_view")
 
         # (마스터 인덱스, 레코드) 튜플로 필터링
@@ -810,7 +811,7 @@ with tab3:
         st.markdown('<div class="inline-row">', unsafe_allow_html=True)
 
         # 헤더
-        h1, h2, h3, h4, h5 = st.columns([5.5, 2.2, 1.1, 1.1, 1.1])
+        h1, h2, h3, h4, h5 = st.columns([5.5, 2, 1, 1, 1])
         with h1: st.markdown('<div class="hdr">업체명</div>', unsafe_allow_html=True)
         with h2: st.markdown('<div class="hdr">분류</div>', unsafe_allow_html=True)
         with h3: st.markdown('<div class="hdr">위로</div>', unsafe_allow_html=True)
@@ -829,19 +830,19 @@ with tab3:
             st.info(f"'{cat_view}' 분류에 등록된 업체가 없습니다.")
         else:
             for k, (i_master, l) in enumerate(filtered):
-                c1, c2, c3, c4, c5 = st.columns([5.5, 2.2, 1.1, 1.1, 1.1])
+                c1, c2, c3, c4, c5 = st.columns([5.5, 2, 1, 1, 1])
                 with c1:
                     st.markdown(f'<div class="row name-col">**{l["name"]}**</div>', unsafe_allow_html=True)
                 with c2:
                     st.write(l.get("category", ""))
                 with c3:
-                    if st.button("▲", key=f"loc_up_{l['id']}", disabled=(k == 0), use_container_width=True):
+                    if st.button("▲", key=f"loc_up_{l['id']}", disabled=(k == 0)):
                         move_in_category(k, k-1)
                 with c4:
-                    if st.button("▼", key=f"loc_down_{l['id']}", disabled=(k == len(filtered)-1), use_container_width=True):
+                    if st.button("▼", key=f"loc_down_{l['id']}", disabled=(k == len(filtered)-1)):
                         move_in_category(k, k+1)
                 with c5:
-                    if st.button("🗑️", key=f"loc_del_{l['id']}", use_container_width=True):
+                    if st.button("🗑️", key=f"loc_del_{l['id']}"):
                         open_confirm("location", l["id"], l["name"], "delete")
                         st.rerun()
 
@@ -850,7 +851,7 @@ with tab3:
         st.info("등록된 업체가 없습니다.")
 
     st.divider()
-    if st.button("데이터 새로고침", use_container_width=True):
+    if st.button("데이터 새로고침"):
         load_data()
         st.success("새로고침 완료")
         st.rerun()
