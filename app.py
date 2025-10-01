@@ -14,64 +14,120 @@ st.set_page_config(page_title="팀 수입 관리 프로그램", layout="wide")
 
 st.markdown("""
 <style>
-/* ===== Global readability ===== */
-html, body, [class*="css"] { font-size: 16px; }
-h1, h2, h3 { letter-spacing: .2px; }
+/* ==============================
+   Global (Light/Dark 대응)
+============================== */
+:root{
+  --bg:#ffffff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; --soft:#f8fafc;
+  --brand:#2563eb; --brand-weak:#dbeafe;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0b0f14; --text:#e5e7eb; --muted:#9ca3af; --border:#1f2937; --soft:#0f141b;
+    --brand:#3b82f6; --brand-weak:#0b1a33;
+  }
+}
+
+html, body, [class*="css"] { font-size: 16px; color: var(--text); background: var(--bg); }
 section.main > div { padding-top: .6rem; }
 
-/* Card-like container (원하면 특정 컨테이너에 class="block" 사용) */
-.block { padding: 1rem 1.25rem; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; }
+/* 헤더/타이틀 */
+h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
 
-/* 숫자 정렬 */
-.mono { font-variant-numeric: tabular-nums; }
-
-/* 표: 한 줄 유지 */
-.dataframe td, .dataframe th { white-space: nowrap; }
-
-/* 탭 간격 */
-.stTabs [role="tablist"] { margin-bottom: .25rem; }
-
-/* 버튼 높이 기본값 */
-button[kind="secondary"], button[kind="primary"] { min-height: 38px; }
-
-/* ===== Mobile (<=640px) 기본 최적화 ===== */
-@media (max-width: 640px) {
-  /* 기본적으로 컬럼은 세로로 쌓기 */
-  div[data-testid="column"] { width: 100% !important; flex: 0 0 100% !important; }
-
-  /* 표/텍스트 살짝 축소 */
-  div[data-testid="stDataFrame"] * { font-size: .95rem; }
-  .stTabs [role="tab"] { font-size: .95rem; padding: .4rem .6rem; }
-  .stMetric-value { font-size: 1.15rem; }
-  .stMetric-label { font-size: .9rem; }
+/* 카드 컨테이너(원하면 class="block" 사용) */
+.block{
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 1px 0 rgba(0,0,0,.03);
 }
 
-/* ===== 목록(팀원/업체) 섹션만 예외: 모바일에서도 가로 정렬 유지 ===== */
-/* 목록 컨테이너를 st.markdown('<div class="inline-row">', unsafe_allow_html=True) 로 감싸줌 */
-.inline-row [data-testid="column"]{
-  width: auto !important;
-  flex: 0 0 auto !important;
+/* 탭 */
+.stTabs [role="tablist"]{ gap:.25rem; margin-bottom:.25rem; }
+.stTabs [role="tab"]{
+  padding:.45rem .7rem; border-radius:10px; border:1px solid var(--border) !important;
 }
-.inline-row .name-col{
-  min-width: 140px;
-  flex: 1 1 auto !important;
+.stTabs [aria-selected="true"]{
+  background: var(--brand-weak); color: var(--text); border-color: var(--brand) !important;
 }
-.inline-row .btn-col{
-  width: 60px !important;
+
+/* 버튼/입력 */
+button[kind], .stButton>button{
+  min-height: 40px; border-radius: 10px; border:1px solid var(--border);
 }
-.inline-row .stButton>button{
-  padding: 6px 0 !important;
-  height: 36px !important;
+.stTextInput input, .stSelectbox > div, .stDateInput input, .stNumberInput input{
+  min-height: 40px; border-radius: 10px !important;
 }
-.inline-row .hdr{
-  font-weight: 700; margin-bottom: 6px;
+.stRadio > div{ gap:.5rem; }
+
+/* 표(데이터프레임) */
+div[data-testid="stDataFrame"]{
+  border:1px solid var(--border); border-radius:12px; overflow:hidden;
 }
-.inline-row .row{
-  display: flex; align-items: center;
-  gap: .5rem; margin: .25rem 0;
+div[data-testid="stDataFrame"] .css-1q8dd3e, /* sticky header 컨테이너 (버전별 class 백업) */
+div[data-testid="stDataFrame"] thead th{
+  background: var(--soft) !important; position: sticky; top:0; z-index:2;
+  border-bottom:1px solid var(--border) !important;
 }
+.dataframe td, .dataframe th{ white-space: nowrap; }
+div[data-testid="stDataFrame"] tbody tr:nth-child(even){ background: color-mix(in srgb, var(--soft) 60%, transparent); }
+
+/* Metric 위젯 */
+.stMetric{
+  padding:.5rem .75rem; border:1px solid var(--border); border-radius:12px; background:var(--bg);
+}
+.stMetric-label{ color:var(--muted); font-size:.92rem; }
+.stMetric-value{ font-size:1.25rem; }
+
+/* 안내/경고 컨테이너 */
+.stAlert{ border-radius:12px; }
+
+/* 모바일 기본 최적화 */
+@media (max-width: 640px){
+  /* 대부분의 컬럼은 세로 스택 */
+  div[data-testid="column"]{ width:100% !important; flex:0 0 100% !important; }
+
+  /* 폰트/컴포넌트 사이즈 미세 조정 */
+  body, [class*="css"]{ font-size: 15.5px; }
+  .stTabs [role="tab"]{ font-size:.95rem; padding:.4rem .55rem; }
+  .stMetric-value{ font-size:1.1rem; }
+  .stMetric{ padding:.45rem .6rem; }
+
+  /* 표 글씨 살짝 축소 */
+  div[data-testid="stDataFrame"] *{ font-size:.95rem; }
+}
+
+/* 초소형 디바이스(<= 380px) 대응 */
+@media (max-width: 380px){
+  body, [class*="css"]{ font-size: 15px; }
+  .stTabs [role="tab"]{ font-size:.9rem; padding:.35rem .5rem; }
+}
+
+/* 숫자 정렬용(원하면 class="mono" 붙여 사용) */
+.mono{ font-variant-numeric: tabular-nums; }
+
+/* 구분선 여백 */
+hr, .stDivider{ margin:.75rem 0; }
+
+/* ==============================
+   목록(팀원/업체) 영역: 모바일에서도 가로 정렬 유지
+   - 해당 섹션을 <div class="inline-row">로 감싸서 사용
+============================== */
+.inline-row [data-testid="column"]{ width:auto !important; flex:0 0 auto !important; }
+.inline-row .name-col{ min-width: 140px; flex:1 1 auto !important; }
+.inline-row .btn-col{ width:64px !important; }
+.inline-row .stButton>button{ padding:6px 0 !important; height:36px !important; }
+.inline-row .hdr{ font-weight:700; margin-bottom:6px; }
+.inline-row .row{ display:flex; align-items:center; gap:.5rem; margin:.25rem 0; }
+
+/* 더 컴팩트 옵션(원하면 주석 해제)
+.inline-row .stButton > button{ padding:4px 0 !important; height:32px !important; }
+.inline-row .row{ gap:.35rem; margin:.15rem 0; }
+*/
 </style>
 """, unsafe_allow_html=True)
+
 
 # ============================
 # Supabase client (optional)
