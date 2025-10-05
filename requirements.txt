@@ -1,3 +1,4 @@
 streamlit>=1.36.0
 pandas>=2.1.0
-streamlit-aggrid>=0.3.4.post3
+python-dateutil>=2.9.0
+supabase>=2.6.0
