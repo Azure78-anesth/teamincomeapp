@@ -530,7 +530,7 @@ with tab3:
 
     # ── 공통: 확인 팝업 상태
     st.session_state.setdefault("confirm_target", None)
-    ...
+    
 
     
 
