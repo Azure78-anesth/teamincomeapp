@@ -521,178 +521,163 @@ with tab2:
                              column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')})
 
 # ============================
-# Tab 3: 설정 (팀원/업체 추가 · 삭제 · 순서 이동)
-#  - 모바일 최적화 "간편 모드": 표(data_editor)에서 일괄 수정/삭제/순서변경 후 저장
+# Tab 3: 설정 (팀원/업체 추가·삭제·순서 이동)
+#  - 직관형 UI: ▲ ▼ 🗑 버튼 (ID 비표시)
 # ============================
 with tab3:
     st.subheader("설정")
 
-    # ── 간편 모드 스위치(모바일 권장)
-    simple_mode = st.toggle(
-        "📱 설정 간편 모드(모바일 최적화)",
-        value=True,
-        help="표에서 한 번에 순서·이름·삭제를 수정하고 저장합니다."
-    )
+    # ── 공통: 확인 팝업 상태
+    st.session_state.setdefault("confirm_target", None)
+    st.session_state.setdefault("confirm_action", None)
 
-    # ========== 간편 모드용 렌더러 ==========
-    def render_simple_member_manager():
-        st.markdown("### 👤 팀원 관리")
+    def open_confirm(_type, _id, _name, action):
+        st.session_state["confirm_target"] = {"type": _type, "id": _id, "name": _name}
+        st.session_state["confirm_action"] = action
 
-        # 1) 추가
-        with st.form("add_member_simple", clear_on_submit=True):
-            name = st.text_input("이름", "")
-            if st.form_submit_button("팀원 추가"):
-                if name.strip():
-                    mid = f"m_{datetime.utcnow().timestamp()}"
-                    next_order = (max([x.get("order", 0) for x in st.session_state.team_members] or [-1]) + 1)
-                    upsert_row("team_members", {"id": mid, "name": name.strip(), "order": next_order})
-                    st.success("팀원 추가 완료")
+    def close_confirm():
+        st.session_state["confirm_target"] = None
+        st.session_state["confirm_action"] = None
+
+    # ── 팝업 UI
+    if st.session_state.get("confirm_target"):
+        tgt = st.session_state["confirm_target"]
+        action = st.session_state.get("confirm_action")
+        with st.container(border=True):
+            st.warning(f"정말로 **{tgt['name']}** 을(를) **{'삭제' if action=='delete' else action}** 하시겠습니까?")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ 확인"):
+                    if action == "delete":
+                        if tgt["type"] == "member":
+                            delete_row("team_members", tgt["id"])
+                        elif tgt["type"] == "location":
+                            delete_row("locations", tgt["id"])
+                    close_confirm()
                     st.rerun()
-                else:
-                    st.error("이름을 입력하세요.")
-
-        # 2) 목록/편집
-        if not st.session_state.team_members:
-            st.info("등록된 팀원이 없습니다.")
-            return
-
-        df = pd.DataFrame(st.session_state.team_members)
-        show = df[["name", "order", "id"]].rename(columns={"name": "이름", "order": "순서", "id": "ID"})
-        show.insert(0, "삭제", False)
-
-        edited = st.data_editor(
-            show,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "순서": st.column_config.NumberColumn(min_value=0, step=1, help="작을수록 위로 정렬됩니다"),
-                "ID": st.column_config.Column(disabled=True),
-                "삭제": st.column_config.CheckboxColumn()
-            }
-        )
-
-        # 3) 저장
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("💾 변경 저장(팀원)"):
-                # 삭제
-                to_delete = edited.loc[edited["삭제"] == True, "ID"].tolist()
-                for rid in to_delete:
-                    delete_row("team_members", rid)
-
-                # 순서/이름 업데이트
-                for _, row in edited.iterrows():
-                    if row["ID"] in to_delete:
-                        continue
-                    for tm in st.session_state.team_members:
-                        if tm["id"] == row["ID"]:
-                            tm["name"] = row["이름"]
-                            tm["order"] = int(row["순서"])
-                            break
-                    if sb:
-                        try:
-                            sb.table("team_members").update(
-                                {"name": row["이름"], "order": int(row["순서"])}
-                            ).eq("id", row["ID"]).execute()
-                        except Exception:
-                            pass
-
-                ensure_order("team_members")
-                st.success("저장되었습니다.")
-                st.rerun()
-
-        with c2:
-            if st.button("🔄 새로고침(팀원)"):
-                ensure_order("team_members")
-                st.rerun()
-
-    def render_simple_location_manager():
-        st.markdown("### 🏢 업체 관리")
-
-        # 현재 볼 카테고리
-        cat_view = st.radio("보기(카테고리)", ["보험", "비보험"], horizontal=True)
-
-        # 1) 추가
-        with st.form("add_location_simple", clear_on_submit=True):
-            name = st.text_input("업체명", "")
-            if st.form_submit_button("업체 추가"):
-                if name.strip():
-                    lid = f"l_{datetime.utcnow().timestamp()}"
-                    next_order = (max([x.get("order", 0) for x in st.session_state.locations] or [-1]) + 1)
-                    upsert_row("locations", {"id": lid, "name": name.strip(), "category": cat_view, "order": next_order})
-                    st.success("업체 추가 완료")
+            with c2:
+                if st.button("❌ 취소"):
+                    close_confirm()
                     st.rerun()
-                else:
-                    st.error("업체명을 입력하세요.")
 
-        # 2) 목록/편집
-        locs = [l for l in st.session_state.locations if (l.get("category", "").strip() == cat_view)]
-        if not locs:
-            st.info(f"'{cat_view}' 분류에 등록된 업체가 없습니다.")
-            return
+    # ============================
+    # 1) 팀원 관리
+    # ============================
+    st.markdown("### 👤 팀원 관리")
 
-        df = pd.DataFrame(locs)
-        show = df[["name", "order", "id", "category"]].rename(
-            columns={"name": "업체명", "order": "순서", "id": "ID", "category": "분류"}
-        )
-        show.insert(0, "삭제", False)
-
-        edited = st.data_editor(
-            show,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "순서": st.column_config.NumberColumn(min_value=0, step=1),
-                "ID": st.column_config.Column(disabled=True),
-                "분류": st.column_config.Column(disabled=True),
-                "삭제": st.column_config.CheckboxColumn()
-            }
-        )
-
-        # 3) 저장
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("💾 변경 저장(업체)"):
-                to_delete = edited.loc[edited["삭제"] == True, "ID"].tolist()
-                for rid in to_delete:
-                    delete_row("locations", rid)
-
-                for _, row in edited.iterrows():
-                    if row["ID"] in to_delete:
-                        continue
-                    for lc in st.session_state.locations:
-                        if lc["id"] == row["ID"]:
-                            lc["name"] = row["업체명"]
-                            lc["order"] = int(row["순서"])
-                            break
-                    if sb:
-                        try:
-                            sb.table("locations").update(
-                                {"name": row["업체명"], "order": int(row["순서"])}
-                            ).eq("id", row["ID"]).execute()
-                        except Exception:
-                            pass
-
-                ensure_order("locations")
-                st.success("저장되었습니다.")
+    # 팀원 추가
+    with st.form("add_member_form", clear_on_submit=True):
+        new_member = st.text_input("이름", "")
+        if st.form_submit_button("팀원 추가"):
+            if new_member.strip():
+                mid = f"m_{datetime.utcnow().timestamp()}"  # 내부용 ID (UI에 표시 안 함)
+                next_order = (max([x.get("order", 0) for x in st.session_state.team_members] or [-1]) + 1)
+                upsert_row("team_members", {"id": mid, "name": new_member.strip(), "order": next_order})
+                st.success("팀원 추가 완료")
                 st.rerun()
+            else:
+                st.error("이름을 입력하세요.")
 
-        with c2:
-            if st.button("🔄 새로고침(업체)"):
-                ensure_order("locations")
-                st.rerun()
+    # 팀원 목록 (ID 숨김)
+    if st.session_state.team_members:
+        st.markdown("#### 팀원 목록 (순서 이동/삭제)")
 
-    # ========== 렌더링 실행 ==========
-    if simple_mode:
-        render_simple_member_manager()
-        st.divider()
-        render_simple_location_manager()
+        tm = sorted(st.session_state.team_members, key=lambda x: x.get("order", 0))
+
+        # 헤더
+        h1, h2, h3, h4 = st.columns([6, 1, 1, 1])
+        with h1: st.caption("이름")
+        with h2: st.caption("위로")
+        with h3: st.caption("아래로")
+        with h4: st.caption("삭제")
+
+        # 행 렌더
+        for i, m in enumerate(tm):
+            c1, c2, c3, c4 = st.columns([6, 1, 1, 1])
+            with c1:
+                # ✅ 이름만 보이게 (ID는 절대 표시하지 않음)
+                st.write(f"**{m['name']}**")
+            with c2:
+                if st.button("▲", key=f"member_up_{m['id']}", disabled=(i == 0)):
+                    swap_order("team_members", i, i-1)  # 내부적으로 order만 교체
+            with c3:
+                if st.button("▼", key=f"member_down_{m['id']}", disabled=(i == len(tm)-1)):
+                    swap_order("team_members", i, i+1)
+            with c4:
+                if st.button("🗑️", key=f"member_del_{m['id']}"):
+                    open_confirm("member", m["id"], m["name"], "delete")
+                    st.rerun()
     else:
-        # (원한다면 기존 버튼(▲▼🗑) 방식 코드를 여기에 두고 simple_mode가 꺼졌을 때만 보이게 할 수 있음)
-        st.info("간편 모드가 꺼져 있습니다. 기존 방식 코드를 여기에 배치하세요.")
+        st.info("등록된 팀원이 없습니다.")
 
     st.divider()
-    if st.button("데이터 새로고침(전체)"):
+
+    # ============================
+    # 2) 업체 관리
+    # ============================
+    st.markdown("### 🏢 업체 관리")
+
+    # 업체 추가
+    with st.form("add_location_form", clear_on_submit=True):
+        loc_name = st.text_input("업체명", "")
+        loc_cat  = st.selectbox("분류", ["보험", "비보험"])
+        if st.form_submit_button("업체 추가"):
+            if loc_name.strip():
+                lid = f"l_{datetime.utcnow().timestamp()}"  # 내부용 ID (UI에 표시 안 함)
+                next_order = (max([x.get("order", 0) for x in st.session_state.locations] or [-1]) + 1)
+                upsert_row("locations", {"id": lid, "name": loc_name.strip(), "category": loc_cat.strip(), "order": next_order})
+                st.success("업체 추가 완료")
+                st.rerun()
+            else:
+                st.error("업체명을 입력하세요.")
+
+    # 보기 필터: 카테고리 내에서만 이동
+    if st.session_state.locations:
+        cat_view = st.radio("보기(카테고리)", ["보험", "비보험"], horizontal=True)
+        locs_all = sorted(st.session_state.locations, key=lambda x: x.get("order", 0))
+        for l in locs_all:
+            if isinstance(l.get("category"), str):
+                l["category"] = l["category"].strip()
+
+        # 현재 카테고리만 그리기
+        filtered = [(i, l) for i, l in enumerate(locs_all) if l.get("category") == cat_view]
+
+        # 헤더
+        h1, h2, h3, h4, h5 = st.columns([5.5, 2, 1, 1, 1])
+        with h1: st.caption("업체명")
+        with h2: st.caption("분류")
+        with h3: st.caption("위로")
+        with h4: st.caption("아래로")
+        with h5: st.caption("삭제")
+
+        if not filtered:
+            st.info(f"'{cat_view}' 분류에 등록된 업체가 없습니다.")
+        else:
+            # 선택 분류 내에서만 상대 이동되도록 보이는 순서 k 기준 처리
+            for k, (i_master, l) in enumerate(filtered):
+                c1, c2, c3, c4, c5 = st.columns([5.5, 2, 1, 1, 1])
+                with c1:
+                    st.write(f"**{l['name']}**")  # ✅ 이름만 표시
+                with c2:
+                    st.write(l.get("category", ""))
+                with c3:
+                    if st.button("▲", key=f"loc_up_{l['id']}", disabled=(k == 0)):
+                        # k 인접 교환 → 실제 저장은 마스터 인덱스끼리 교환
+                        i_master_to = filtered[k-1][0]
+                        swap_order("locations", i_master, i_master_to)
+                with c4:
+                    if st.button("▼", key=f"loc_down_{l['id']}", disabled=(k == len(filtered)-1)):
+                        i_master_to = filtered[k+1][0]
+                        swap_order("locations", i_master, i_master_to)
+                with c5:
+                    if st.button("🗑️", key=f"loc_del_{l['id']}"):
+                        open_confirm("location", l["id"], l["name"], "delete")
+                        st.rerun()
+    else:
+        st.info("등록된 업체가 없습니다.")
+
+    st.divider()
+    if st.button("데이터 새로고침"):
         ensure_order("team_members")
         ensure_order("locations")
         st.success("새로고침 완료")
