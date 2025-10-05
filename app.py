@@ -1,16 +1,23 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 from zoneinfo import ZoneInfo  # 한국 시간대 지원
-NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
-
 from typing import List, Dict, Any
 
+# ─────────────────────────────────────────
+# Global: 한국 시간(오늘) 고정
+# ─────────────────────────────────────────
+NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
+
 # ============================
-# Page & Global Styles
+# Page & Global Styles (모바일 세로보기 최적화)
 # ============================
-st.set_page_config(page_title="팀 수입 관리 프로그램", layout="wide")
+st.set_page_config(
+    page_title="팀 수입 관리",
+    page_icon="💼",
+    layout="centered",                 # ✅ 세로보기 중심
+    initial_sidebar_state="collapsed"
+)
 
 st.markdown("""
 <style>
@@ -52,12 +59,12 @@ h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
   background: var(--brand-weak); color: var(--text); border-color: var(--brand) !important;
 }
 
-/* 버튼/입력 */
+/* 버튼/입력: 터치 타깃 확대 */
 button[kind], .stButton>button{
-  min-height: 40px; border-radius: 10px; border:1px solid var(--border);
+  min-height: 44px; border-radius: 12px; border:1px solid var(--border); font-weight:600;
 }
 .stTextInput input, .stSelectbox > div, .stDateInput input, .stNumberInput input{
-  min-height: 40px; border-radius: 10px !important;
+  min-height: 44px; border-radius: 12px !important;
 }
 .stRadio > div{ gap:.5rem; }
 
@@ -103,8 +110,9 @@ hr, .stDivider{ margin:.75rem 0; }
   .stMetric-value{ font-size:1.1rem; }
   .stMetric{ padding:.45rem .6rem; }
 
-  /* 표 글씨 약간 축소 */
+  /* 표 글씨 약간 축소 + 높이 제한 */
   div[data-testid="stDataFrame"] *{ font-size:.95rem; }
+  div[data-testid="stDataFrame"]{ max-height: 440px; }
 }
 
 /* 초소형(<=380px) */
@@ -142,11 +150,32 @@ hr, .stDivider{ margin:.75rem 0; }
 /* 헤더/행 */
 .inline-row .hdr{ font-weight:700; margin-bottom:6px; }
 .inline-row .row{ display:flex; align-items:center; gap:.5rem; margin:.25rem 0; }
+
+/* ───────── 요약 카드(모바일 2열 그리드) ───────── */
+.mgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media (max-width: 380px){ .mgrid { grid-template-columns:1fr; } }
+.mcard { padding:10px 12px; border:1px solid var(--border); border-radius:12px; background: var(--bg); }
+.mtitle { color: var(--muted); font-size:.92rem; margin-bottom:4px; }
+.mvalue { font-size:1.25rem; font-weight:700; }
 </style>
 """, unsafe_allow_html=True)
 
 
-
+# ============================
+# Small UI helpers
+# ============================
+def metric_cards(items: list[tuple[str, str]]):
+    """모바일 친화 요약 카드 (2열 그리드)"""
+    html = ['<div class="mgrid">']
+    for title, value in items:
+        html.append(f'''
+        <div class="mcard">
+          <div class="mtitle">{title}</div>
+          <div class="mvalue">{value}</div>
+        </div>
+        ''')
+    html.append('</div>')
+    st.markdown("\n".join(html), unsafe_allow_html=True)
 
 
 # ============================
@@ -190,7 +219,6 @@ def load_data():
         try:
             tmem = sb.table("team_members").select("*").order("order").execute().data
             locs = sb.table("locations").select("*").order("order").execute().data
-            # incomes는 많은 경우가 있어 날짜 기준으로 로드
             incs = sb.table("incomes").select("*").order("date").execute().data
             team_members = [{"id":x["id"],"name":x["name"],"order":x.get("order",0)} for x in tmem]
             locations = [{"id":x["id"],"name":x["name"],"category":x.get("category",""),"order":x.get("order",0)} for x in locs]
@@ -293,10 +321,7 @@ def delete_row(table: str, id_value: str):
         st.session_state.locations = [r for r in st.session_state.locations if r["id"] != id_value]
 
 def ensure_order(list_key: str):
-    """
-    리스트의 order를 0..n-1로 재부여하여 정규화.
-    DB(Supabase)에도 반영하여 새로고침에도 유지.
-    """
+    """리스트의 order를 0..n-1로 재부여하여 정규화, DB에도 반영."""
     lst = st.session_state.get(list_key, [])
     lst_sorted = sorted(lst, key=lambda x: x.get("order", 0))
     changed = False
@@ -304,7 +329,6 @@ def ensure_order(list_key: str):
         if x.get("order") != i:
             x["order"] = i
             changed = True
-
     st.session_state[list_key] = lst_sorted
     if changed and sb:
         table = "team_members" if list_key == "team_members" else "locations"
@@ -315,24 +339,19 @@ def ensure_order(list_key: str):
             st.warning(f"{table} order 정규화 저장 실패(네트워크/권한)")
 
 def swap_order(list_key: str, idx_a: int, idx_b: int):
-    """
-    보이는 리스트(정렬된)에서의 인덱스를 기준으로 순서를 교환.
-    DB 업데이트 → 다시 로드 → 정규화 → rerun
-    """
+    """보이는 리스트(정렬된)에서의 인덱스를 기준으로 순서를 교환."""
     lst = st.session_state[list_key]
     a, b = lst[idx_a], lst[idx_b]
     a_order, b_order = a.get("order", 0), b.get("order", 0)
     a["order"], b["order"] = b_order, a_order
     st.session_state[list_key] = sorted(lst, key=lambda x: x["order"])
-
     if sb:
         table = "team_members" if list_key == "team_members" else "locations"
         try:
             sb.table(table).update({"order": a["order"]}).eq("id", a["id"]).execute()
             sb.table(table).update({"order": b["order"]}).eq("id", b["id"]).execute()
         except Exception:
-            st.warning("순서 저장 실패(네트워크/권한) — 화면에는 반영됐지만 새로고침 시 되돌 수 있음")
-
+            st.warning("순서 저장 실패(네트워크/권한)")
     load_data()
     ensure_order(list_key)
     st.rerun()
@@ -344,7 +363,7 @@ st.title("팀 수입 관리")
 if sb:
     st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
 else:
-    st.info("🧪 Supabase 미설정 상태 — 세션 메모리로만 동작합니다(예시 실행용). 팀원이 함께 쓰려면 Secrets에 SUPABASE를 설정하세요.")
+    st.info("🧪 Supabase 미설정 상태 — 세션 메모리로만 동작합니다. 팀원이 함께 쓰려면 Secrets에 SUPABASE를 설정하세요.")
 
 load_data()
 ensure_order("team_members")
@@ -365,13 +384,13 @@ tab1, tab2, tab3, tab4 = st.tabs(["수입 입력", "통계", "설정", "기록 �
 with tab1:
     st.markdown('<div class="block">', unsafe_allow_html=True)
     st.subheader("수입 입력")
+
     col1, col2 = st.columns([1,1])
     with col1:
-        # 발생일 위젯 상태 동기화
+        # 발생일 위젯 상태 동기화 (KST 기준 오늘 자동 세팅)
         if "input_date" not in st.session_state:
             st.session_state.input_date = NOW_KST.date()
         else:
-            # 하루가 바뀌면 자동으로 리셋
             if st.session_state.input_date != NOW_KST.date():
                 st.session_state.input_date = NOW_KST.date()
 
@@ -420,7 +439,7 @@ with tab1:
             })
             st.success("저장되었습니다 ✅")
 
-    # 최근 입력 + 수정 버튼 (간단 미리보기)
+    # 최근 입력 + 미리보기
     if st.session_state.income_records:
         st.markdown("#### 최근 입력")
         recent = sorted(st.session_state.income_records, key=lambda x: x["date"], reverse=True)[:50]
@@ -438,34 +457,19 @@ with tab1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================
-# Tab 2: 통계
+# Tab 2: 통계 (모바일 카드 요약 + 상세)
 # ============================
 with tab2:
-    # --- 모바일 최적화 CSS ---
-    st.markdown("""
-    <style>
-    html, body, [class*="css"] { font-size: 16px; }
-    .dataframe td, .dataframe th { white-space: nowrap; }
-    @media (max-width: 640px) {
-      div[data-testid="column"] { width: 100% !important; flex: 0 0 100% !important; }
-      .stTabs [role="tab"] { font-size: .95rem; padding: .4rem .6rem; }
-      div[data-testid="stDataFrame"] * { font-size: 0.95rem; }
-      .stMetric-value { font-size: 1.15rem; }
-      .stMetric-label { font-size: .9rem; }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     st.markdown('### 통계')
 
-    # --- 유틸: id -> name ---
+    # 유틸: id -> name
     def _name_from(_id: str, coll: list[dict]) -> str:
         for x in coll:
             if x['id'] == _id:
                 return x.get('name', '')
         return ''
 
-    # --- 원본 데이터프레임 구성 ---
+    # 원본 DF
     records = st.session_state.get('income_records', [])
     if not records:
         st.info('데이터가 없습니다. 먼저 [수입 입력]에서 데이터를 추가해 주세요.')
@@ -486,11 +490,10 @@ with tab2:
     df['month'] = df['date'].dt.month.astype(int)
     df['day']   = df['date'].dt.strftime('%Y-%m-%d')
 
-    # --- 연도 선택 ---
-    cur_year = NOW_KST.year if 'NOW_KST' in globals() else datetime.now().year
+    # 연도 선택
+    cur_year = NOW_KST.year
     years = sorted(df['year'].unique().tolist())
     default_year = cur_year if cur_year in years else years[-1]
-
     c1, c2 = st.columns([3,2])
     with c1:
         year = st.selectbox('연도(연간 리셋/독립 집계)', years, index=years.index(default_year))
@@ -502,22 +505,16 @@ with tab2:
         st.warning(f'{year}년 데이터가 없습니다.')
         st.stop()
 
-    # --- 하위 탭 ---
     tab_mem, tab_loc = st.tabs(['팀원별', '업체별'])
 
-    # ===================== 팀원별 =====================
+    # ───────── 팀원별 ─────────
     with tab_mem:
         st.markdown('#### 팀원별 수입 통계')
-
         members = sorted([m for m in dfY['member'].dropna().unique().tolist() if m])
-        member_select = st.selectbox(
-            '팀원 선택(최상단은 비교 보기)',
-            ['팀원 비교(전체)'] + members,
-            index=0
-        )
+        member_select = st.selectbox('팀원 선택(최상단은 비교 보기)', ['팀원 비교(전체)'] + members, index=0)
 
         if member_select == '팀원 비교(전체)':
-            # 팀원별 연간 합계 (순위 1부터)
+            # 연간 합계 (순위 1부터, 총합만 표)
             annual_by_member = dfY.groupby('member', dropna=False, as_index=False)['amount'].sum()
             annual_by_member.rename(columns={'member':'팀원', 'amount':'연간 합계(만원)'}, inplace=True)
             annual_by_member.sort_values('연간 합계(만원)', ascending=False, inplace=True, kind='mergesort')
@@ -547,19 +544,19 @@ with tab2:
 
             st.markdown(f'##### {month_sel2}월 · 보험/비보험 분리 + 총합')
             st.dataframe(
-                pivot[['팀원','총합(만원)','보험','비보험']],  # 총합을 앞으로
+                pivot[['팀원','총합(만원)','보험','비보험']],
                 use_container_width=True,
                 hide_index=True,
                 column_config={c: st.column_config.NumberColumn(format='%.0f') for c in ['총합(만원)','보험','비보험']}
             )
 
         else:
-            # ---------- 특정 팀원 선택 시 ----------
+            # 특정 팀원
             dfM = dfY[dfY['member'] == member_select].copy()
             months_avail = sorted(dfM['month'].unique().tolist()) or list(range(1,13))
             month_sel = st.selectbox('월 선택(일별 상세/요약)', months_avail, index=len(months_avail)-1)
 
-            # (A) 연간 요약 표: 금액/건수 (총합 → 보험 → 비보험)
+            # (A) 연간 요약 카드: 금액/건수 (총합 → 보험 → 비보험)
             dfY_member = dfY[dfY['member'] == member_select].copy()
             y_ins_amt = dfY_member.loc[dfY_member['category']=='보험',   'amount'].sum()
             y_non_amt = dfY_member.loc[dfY_member['category']=='비보험', 'amount'].sum()
@@ -569,22 +566,16 @@ with tab2:
             y_tot_cnt = int(len(dfY_member))
 
             st.markdown('##### 연간 요약')
-            annual_summary = pd.DataFrame({
-                "구분": ["총합", "보험", "비보험"],
-                "금액(만원)": [y_tot_amt, y_ins_amt, y_non_amt],
-                "건수": [y_tot_cnt, y_ins_cnt, y_non_cnt],
-            })
-            st.dataframe(
-                annual_summary,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "금액(만원)": st.column_config.NumberColumn(format="%.0f"),
-                    "건수": st.column_config.NumberColumn(format="%d"),
-                }
-            )
+            metric_cards([
+                ("연간 총합(만원)", f"{y_tot_amt:,.0f}"),
+                ("연간 보험(만원)", f"{y_ins_amt:,.0f}"),
+                ("연간 비보험(만원)", f"{y_non_amt:,.0f}"),
+                ("연간 건수(총합)", f"{y_tot_cnt:,}"),
+                ("연간 건수(보험)", f"{y_ins_cnt:,}"),
+                ("연간 건수(비보험)", f"{y_non_cnt:,}"),
+            ])
 
-            # (B) 월간 요약 표: 금액/건수 (총합 → 보험 → 비보험)
+            # (B) 월간 요약 카드
             dfM_month = dfM[dfM['month'] == month_sel].copy()
             m_ins_amt = dfM_month.loc[dfM_month['category']=='보험',   'amount'].sum()
             m_non_amt = dfM_month.loc[dfM_month['category']=='비보험', 'amount'].sum()
@@ -594,20 +585,14 @@ with tab2:
             m_tot_cnt = int(len(dfM_month))
 
             st.markdown(f'##### {month_sel}월 요약')
-            monthly_summary = pd.DataFrame({
-                "구분": ["총합", "보험", "비보험"],
-                "금액(만원)": [m_tot_amt, m_ins_amt, m_non_amt],
-                "건수": [m_tot_cnt, m_ins_cnt, m_non_cnt],
-            })
-            st.dataframe(
-                monthly_summary,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "금액(만원)": st.column_config.NumberColumn(format="%.0f"),
-                    "건수": st.column_config.NumberColumn(format="%d"),
-                }
-            )
+            metric_cards([
+                ("월 총합(만원)", f"{m_tot_amt:,.0f}"),
+                ("월 보험(만원)", f"{m_ins_amt:,.0f}"),
+                ("월 비보험(만원)", f"{m_non_amt:,.0f}"),
+                ("월 건수(총합)", f"{m_tot_cnt:,}"),
+                ("월 건수(보험)", f"{m_ins_cnt:,}"),
+                ("월 건수(비보험)", f"{m_non_cnt:,}"),
+            ])
 
             # (C) 일별 합계 (선택 월)
             daily = (
@@ -642,10 +627,9 @@ with tab2:
             else:
                 st.info('선택한 월에 입력된 데이터가 없어 상세 보기를 표시할 수 없습니다.')
 
-    # ===================== 업체별 =====================
+    # ───────── 업체별 ─────────
     with tab_loc:
         st.markdown('#### 업체별 통계 (보험/비보험 분리)')
-
         cat_sel = st.radio('분류 선택', ['보험','비보험'], horizontal=True)
         dfC = dfY[dfY['category'] == cat_sel].copy()
         if dfC.empty:
@@ -685,14 +669,13 @@ with tab2:
                     column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')}
                 )
 
-
 # ============================
 # Tab 3: 설정 (팀원/업체 추가·삭제·순서 이동)
 # ============================
 with tab3:
     st.subheader("설정")
 
-    # ---------- 확인 팝업 핸들러 ----------
+    # 확인 팝업 핸들러
     def open_confirm(_type, _id, _name, action):
         st.session_state["confirm_target"] = {"type": _type, "id": _id, "name": _name}
         st.session_state["confirm_action"] = action
@@ -722,9 +705,8 @@ with tab3:
                     close_confirm()
                     st.rerun()
 
-    # ------------------ 팀원 관리 ------------------
+    # ───────── 팀원 관리 ─────────
     st.markdown("### 👤 팀원 관리")
-
     with st.form("add_member_form", clear_on_submit=True):
         new_member = st.text_input("이름", "")
         submitted = st.form_submit_button("팀원 추가")
@@ -742,9 +724,7 @@ with tab3:
         st.markdown("#### 팀원 목록 (순서 이동/삭제)")
         tm = sorted(st.session_state.team_members, key=lambda x: x.get("order", 0))
 
-        # 모바일에서도 가로 정렬 유지 (CSS의 .inline-row 필요)
         st.markdown('<div class="inline-row">', unsafe_allow_html=True)
-
         # 헤더
         mh1, mh2, mh3, mh4 = st.columns([6, 1, 1, 1])
         with mh1: st.markdown('<div class="hdr">이름</div>', unsafe_allow_html=True)
@@ -769,17 +749,14 @@ with tab3:
                 if st.button("🗑️", key=f"member_del_{m['id']}"):
                     open_confirm("member", m["id"], m["name"], "delete")
                     st.rerun()
-
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("등록된 팀원이 없습니다.")
 
     st.divider()
 
-    # ------------------ 업체 관리 ------------------
+    # ───────── 업체 관리 ─────────
     st.markdown("### 🏢 업체 관리")
-
-    # 추가 폼
     with st.form("add_location_form", clear_on_submit=True):
         loc_name = st.text_input("업체명", "")
         loc_cat  = st.selectbox("분류", ["보험", "비보험"])
@@ -797,25 +774,21 @@ with tab3:
             else:
                 st.error("업체명을 입력하세요.")
 
-    # 목록
     if st.session_state.locations:
         st.markdown("#### 업체 목록 (카테고리별 순서 이동/삭제)")
 
-        # order 정렬 + category 정규화(strip)
         locs_all = sorted(st.session_state.locations, key=lambda x: x.get("order", 0))
         for l in locs_all:
             if isinstance(l.get("category"), str):
                 l["category"] = l["category"].strip()
 
-        # 보기 라디오: 선택 분류만 표시하고 그 안에서만 이동
+        # 카테고리 필터
         cat_view = st.radio("보기(카테고리)", ["보험", "비보험"], horizontal=True, key="loc_cat_view")
 
-        # (마스터 인덱스, 레코드) 튜플로 필터링
+        # 필터링 (마스터 인덱스, 레코드)
         filtered = [(i, l) for i, l in enumerate(locs_all) if l.get("category") == cat_view]
 
-        # 모바일에서도 가로 정렬 유지
         st.markdown('<div class="inline-row">', unsafe_allow_html=True)
-
         # 헤더
         h1, h2, h3, h4, h5 = st.columns([5.5, 2, 1, 1, 1])
         with h1: st.markdown('<div class="hdr">업체명</div>', unsafe_allow_html=True)
@@ -824,14 +797,12 @@ with tab3:
         with h4: st.markdown('<div class="hdr">아래로</div>', unsafe_allow_html=True)
         with h5: st.markdown('<div class="hdr">삭제</div>', unsafe_allow_html=True)
 
-        # 헬퍼: 선택 분류 내에서만 이동 → 실제 저장은 마스터 인덱스끼리 swap
         def move_in_category(k_from: int, k_to: int):
             i_master_from = filtered[k_from][0]
             i_master_to   = filtered[k_to][0]
             swap_order("locations", i_master_from, i_master_to)
             st.rerun()
 
-        # 행
         if not filtered:
             st.info(f"'{cat_view}' 분류에 등록된 업체가 없습니다.")
         else:
@@ -851,7 +822,6 @@ with tab3:
                     if st.button("🗑️", key=f"loc_del_{l['id']}"):
                         open_confirm("location", l["id"], l["name"], "delete")
                         st.rerun()
-
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("등록된 업체가 없습니다.")
@@ -861,8 +831,6 @@ with tab3:
         load_data()
         st.success("새로고침 완료")
         st.rerun()
-
-
 
 # ============================
 # Tab 4: 기록 관리 (전체 수정/삭제)
@@ -1013,7 +981,12 @@ with tab4:
         target = next((x for x in st.session_state.income_records if x["id"] == st.session_state.edit_income_id), None)
         if target:
             st.markdown("#### 선택한 기록 수정")
-            cur_member = resolve_name2(target["teamMemberId"], st.session_state.team_members)
+            def resolve_name(id_value: str, coll: list[dict]) -> str:
+                for x in coll:
+                    if x["id"] == id_value:
+                        return x.get("name", "")
+                return ""
+            cur_member = resolve_name(target["teamMemberId"], st.session_state.team_members)
             cur_loc = next((l for l in st.session_state.locations if l["id"] == target["locationId"]), None)
             cur_cat = cur_loc["category"] if cur_loc else "보험"
 
