@@ -525,7 +525,7 @@ with tab2:
 # ============================
 with tab3:
     st.subheader("설정")
-
+    st.caption("📱 모바일에서는 화면을 가로로 돌리면 설정 UI가 더 깔끔하게 표시됩니다.")
     def open_confirm(_type, _id, _name, action):
         st.session_state["confirm_target"] = {"type": _type, "id": _id, "name": _name}
         st.session_state["confirm_action"] = action
