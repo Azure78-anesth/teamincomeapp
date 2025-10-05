@@ -526,6 +526,13 @@ with tab2:
 # ============================
 with tab3:
     st.subheader("설정")
+    st.caption("📱 모바일에서는 화면을 가로로 돌리면 설정 UI가 더 깔끔하게 표시됩니다.")
+
+    # ── 공통: 확인 팝업 상태
+    st.session_state.setdefault("confirm_target", None)
+    ...
+
+    
 
     # ── 공통: 확인 팝업 상태
     st.session_state.setdefault("confirm_target", None)
