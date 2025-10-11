@@ -290,31 +290,37 @@ st.session_state.setdefault("records_page", 0)
 tab1, tab2, tab3, tab4 = st.tabs(["수입 입력", "통계", "설정", "기록 관리"])
 
 # ============================
-# Tab 1: 수입 입력 (메모 제거 버전)
+# Tab 1: 수입 입력 (최종 완성 - 오늘 기본 + 다른 날짜 입력 가능)
 # ============================
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
+NOW_KST = datetime.now(KST)
+
 with tab1:
     st.markdown('<div class="block">', unsafe_allow_html=True)
     st.subheader("수입 입력")
 
     col1, col2 = st.columns([1, 1])
 
-    # ✅ 날짜 상태를 별도 key로 관리 (위젯 key 충돌 방지)
-    if "selected_date" not in st.session_state:
-        st.session_state.selected_date = NOW_KST.date()
-
     with col1:
-        # 날짜 입력
+        # ✅ 한국 시간 기준 오늘 날짜를 항상 계산
+        today_kst = datetime.now(KST).date()
+
+        # ✅ 발생일 입력 (항상 오늘이 기본값)
         d = st.date_input(
             "발생일",
-            key="date_widget",                     # 위젯용 key
-            value=st.session_state.selected_date,  # 세션 유지
+            value=today_kst,
             format="YYYY-MM-DD"
         )
-        st.session_state.selected_date = d  # 선택한 날짜 유지
 
         # 팀원 선택
         member_options = {m["name"]: m["id"] for m in st.session_state.team_members}
-        member_name = st.selectbox("팀원", list(member_options.keys()) if member_options else ["(팀원을 먼저 추가하세요)"])
+        member_name = st.selectbox(
+            "팀원",
+            list(member_options.keys()) if member_options else ["(팀원을 먼저 추가하세요)"]
+        )
         member_id = member_options.get(member_name)
 
     with col2:
@@ -322,6 +328,7 @@ with tab1:
         cat = st.radio("업체 분류", ["보험", "비보험"], horizontal=True)
         filtered_locations = [l for l in st.session_state.locations if l["category"] == cat]
         loc_options = {l["name"]: l["id"] for l in filtered_locations}
+
         if not loc_options:
             st.warning(f"'{cat}' 분류 업체가 없습니다. 설정 탭에서 추가하세요.")
         loc_name = st.selectbox("업체", list(loc_options.keys()) if loc_options else [])
@@ -335,26 +342,29 @@ with tab1:
         amount = None
         st.error("금액은 숫자만 입력하세요. (예: 50)")
 
-    # 저장 버튼
+    # ✅ 등록 버튼
     if st.button("등록하기", type="primary"):
         if not (member_id and loc_id and d and (amount is not None and amount > 0)):
             st.error("모든 필드를 올바르게 입력하세요.")
         else:
             rid = f"inc_{datetime.utcnow().timestamp()}"
+
+            # ✅ DB에 입력 (사용자가 선택한 날짜 그대로 저장)
             upsert_row("incomes", {
                 "id": rid,
-                "date": d.strftime("%Y-%m-%d"),  # ✅ Supabase 컬럼명 그대로
+                "date": d.strftime("%Y-%m-%d"),
                 "teamMemberId": member_id,
                 "locationId": loc_id,
                 "amount": float(amount),
             })
-            st.session_state.selected_date = d
-            st.success("저장되었습니다 ✅")
 
-    # 최근 입력 보기
+            st.success(f"{d.strftime('%Y-%m-%d')} 수입이 저장되었습니다 ✅")
+
+    # ✅ 최근 입력 내역 (미리보기)
     if st.session_state.income_records:
         st.markdown("#### 최근 입력")
         recent = sorted(st.session_state.income_records, key=lambda x: x["date"], reverse=True)[:50]
+
         df_prev = pd.DataFrame([
             {
                 "날짜": r["date"],
@@ -363,12 +373,15 @@ with tab1:
                 "금액(만원)": r["amount"],
             } for r in recent
         ])
+
         st.dataframe(
             df_prev,
             use_container_width=True,
             column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
         )
+
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
