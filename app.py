@@ -290,166 +290,122 @@ st.session_state.setdefault("records_page", 0)
 tab1, tab2, tab3, tab4 = st.tabs(["수입 입력", "통계", "설정", "기록 관리"])
 
 # ============================
-# Tab 1: 수입 입력 (날짜 유지 + DB 컬럼 자동 호환)
+# Tab 1: 수입 입력  (DB 스키마 준수 + 날짜 유지)
 # ============================
-from datetime import datetime, date
-from zoneinfo import ZoneInfo
-KST = ZoneInfo("Asia/Seoul")
-today_kst = datetime.now(KST).date()
-
-def smart_insert_income(base_row: dict, category_value: str) -> bool:
-    """
-    DB 스키마에 맞춰 '보험/비보험'을 넣을 컬럼을 자동 탐색해 저장합니다.
-    우선순위: category(text) → type(text) → is_insurance(bool)
-    성공 시 True, 모두 실패 시 False 반환.
-    """
-    if not sb:
-        return False  # Supabase 미연결
-
-    candidates = [
-        ("category", "text"),
-        ("type", "text"),
-        ("is_insurance", "bool"),
-    ]
-    last_err = None
-    for col, kind in candidates:
-        row = dict(base_row)  # 복사
-        try:
-            if kind == "text":
-                row[col] = category_value  # '보험' / '비보험'
-            else:  # bool
-                row[col] = (category_value == "보험")
-            sb.table("incomes").insert(row).execute()
-            return True
-        except Exception as e:
-            last_err = e
-            continue
-
-    # 모두 실패: 에러 표시
-    if last_err:
-        st.error("DB 저장 실패: incomes 테이블의 분류 컬럼명을 확인하세요. (category/type/is_insurance 중 하나)")
-        st.exception(last_err)
-    return False
+from datetime import datetime
+try:
+    NOW_KST  # 이미 상단에 있으면 재정의 안 함
+except NameError:
+    from zoneinfo import ZoneInfo
+    NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
 
 with tab1:
+    st.markdown('<div class="block">', unsafe_allow_html=True)
     st.subheader("수입 입력")
 
-    # 팀원/업체 목록
-    members_all = [m["name"] for m in sorted(st.session_state.get("team_members", []), key=lambda x: x.get("order", 0))]
-    locations_all = sorted(st.session_state.get("locations", []), key=lambda x: x.get("order", 0))
+    # ✅ 날짜 상태: "처음 한 번만" 오늘로 세팅하고, 그 이후엔 절대 자동으로 덮어쓰지 않음
+    if "input_date" not in st.session_state:
+        st.session_state.input_date = NOW_KST.date()
 
-    if not members_all:
-        st.info("먼저 설정 탭에서 팀원을 추가하세요.")
-    if not locations_all:
-        st.info("먼저 설정 탭에서 업체를 추가하세요.")
+    col1, col2 = st.columns([1, 1])
 
-    # 날짜 상태: 처음 한 번만 오늘로 초기화, 그 뒤로는 유지
-    if "form_date" not in st.session_state:
-        st.session_state.form_date = today_kst
-
-    st.markdown("#### 입력")
-    with st.form("income_form", clear_on_submit=True):
-        sel_date = st.date_input("발생일",
-                                 value=st.session_state.form_date,
-                                 key="form_date")
-
-        member_name = st.selectbox("팀원", members_all, index=0 if members_all else None)
-        category = st.radio("구분", ["보험", "비보험"], horizontal=True)
-
-        loc_options = [l["name"] for l in locations_all if str(l.get("category","")).strip() == category]
-        location_name = st.selectbox("업체명", loc_options, index=0 if loc_options else None)
-
-        amount_raw = st.text_input("금액(만원 단위)", value="", placeholder="예: 50 (만원)")
-        memo = st.text_input("메모(선택)", value="", placeholder="예: 비고/설명")
-
-        submitted = st.form_submit_button("저장")
-
-        if submitted:
-            errors = []
-            chosen = st.session_state.get("form_date", today_kst)
-            if isinstance(chosen, datetime):
-                chosen = chosen.date()
-            if not isinstance(chosen, date):
-                errors.append("발생일이 올바르지 않습니다.")
-            if not member_name:
-                errors.append("팀원을 선택하세요.")
-            if not location_name:
-                errors.append("업체명을 선택하세요.")
-
-            amt = None
-            txt = amount_raw.strip().replace(",", "")
-            if not txt:
-                errors.append("금액을 입력하세요.")
-            else:
-                try:
-                    amt = float(txt)
-                    if amt < 0:
-                        errors.append("금액은 0 이상이어야 합니다.")
-                except Exception:
-                    errors.append("금액 형식이 올바르지 않습니다. 예: 50")
-
-            if errors:
-                for e in errors:
-                    st.error(e)
-            else:
-                y = int(chosen.strftime("%Y"))
-                m = int(chosen.strftime("%m"))
-                d = int(chosen.strftime("%d"))
-
-                base_row = {
-                    # 날짜 컬럼: 기존 스키마가 date 타입이면 문자열 'YYYY-MM-DD' 권장
-                    "date": chosen.isoformat(),
-                    # timestamp 컬럼을 쓰셨다면 다음처럼 바꿔 쓰세요:
-                    # "happened_at": datetime.combine(chosen, datetime.min.time(), tzinfo=KST).isoformat(),
-
-                    "year": y, "month": m, "day": d,
-                    "member": member_name,
-                    "location": location_name,
-                    # 분류 컬럼은 smart_insert_income에서 자동으로 선택해 넣습니다.
-                    "amount": amt,
-                    "memo": memo.strip() or None,
-                }
-
-                saved = False
-                try:
-                    saved = smart_insert_income(base_row, category)
-                except Exception as e:
-                    st.warning("DB 저장 중 문제가 발생했어요.")
-                    st.exception(e)
-
-                if not saved:
-                    # 로컬 임시 저장 (DB 실패 대비)
-                    st.session_state.setdefault("incomes_local", [])
-                    tmp_row = dict(base_row)
-                    # 임시 보관엔 사람이 보기 쉽도록 분류 문자열도 남김
-                    tmp_row["_category_text"] = category
-                    st.session_state["incomes_local"].append(tmp_row)
-
-                st.session_state.form_date = chosen
-                st.success("저장되었습니다.")
-                st.rerun()
-
-    # (선택) 최근 입력 요약
-    st.markdown("#### 최근 입력(요약)")
-    recent = []
-    if "incomes_local" in st.session_state:
-        recent.extend(st.session_state["incomes_local"][-10:])
-    if recent:
-        cols = ["date","member","_category_text","location","amount","memo"]
-        df_recent = pd.DataFrame([{k: r.get(k) for k in cols} for r in recent]).rename(
-            columns={
-                "date":"발생일","member":"팀원","_category_text":"구분",
-                "location":"업체명","amount":"금액(만원)","memo":"메모"
-            }
+    with col1:
+        # 발생일 (사용자가 바꾸면 그 값이 세션에 유지됨)
+        d = st.date_input(
+            "발생일",
+            key="input_date",
+            value=st.session_state.input_date,
+            format="YYYY-MM-DD"
         )
+
+        # 팀원 선택
+        member_options = {m["name"]: m["id"] for m in st.session_state.get("team_members", [])}
+        if not member_options:
+            st.warning("팀원이 없습니다. 설정 탭에서 팀원을 먼저 추가하세요.")
+            member_name = None
+            member_id = None
+        else:
+            member_name = st.selectbox("팀원", list(member_options.keys()))
+            member_id = member_options.get(member_name)
+
+    with col2:
+        # 업체 분류 (카테고리 값은 DB에 저장하지 않음 — locations 테이블에서 관리)
+        cat = st.radio("업체 분류", ["보험", "비보험"], horizontal=True)
+
+        # 분류별 업체 필터
+        locs_all = st.session_state.get("locations", [])
+        filtered_locations = [l for l in locs_all if str(l.get("category", "")).strip() == cat]
+        loc_options = {l["name"]: l["id"] for l in filtered_locations}
+
+        if not loc_options:
+            st.warning(f"'{cat}' 분류의 업체가 없습니다. 설정 탭에서 추가하세요.")
+            loc_name = None
+            loc_id = None
+        else:
+            loc_name = st.selectbox("업체", list(loc_options.keys()))
+            loc_id = loc_options.get(loc_name)
+
+    # 금액 입력(숫자만)
+    amount_raw = st.text_input("금액(만원 단위)", value="", placeholder="예: 50 (만원)")
+    try:
+        amount = float(amount_raw.replace(",", "").strip()) if amount_raw.strip() != "" else None
+    except ValueError:
+        amount = None
+        st.error("금액은 숫자만 입력하세요. (예: 50)")
+
+    memo = st.text_input("메모(선택)", "")
+
+    # 등록 버튼
+    if st.button("등록하기", type="primary"):
+        # 필수값 검증
+        if not d:
+            st.error("발생일을 선택하세요.")
+        elif not member_id:
+            st.error("팀원을 선택하세요.")
+        elif not loc_id:
+            st.error("업체를 선택하세요.")
+        elif amount is None or amount <= 0:
+            st.error("금액을 올바르게 입력하세요. (0보다 큰 숫자)")
+        else:
+            # ✅ 기존 DB 스키마에 정확히 맞게 저장
+            rid = f"inc_{datetime.utcnow().timestamp()}"
+            upsert_row("incomes", {
+                "id": rid,
+                "date": d.strftime("%Y-%m-%d"),  # 문자열 'YYYY-MM-DD'
+                "teamMemberId": member_id,
+                "locationId": loc_id,
+                "amount": float(amount),
+                "memo": memo.strip() or None,
+            })
+            st.success("저장되었습니다 ✅")
+
+            # 날짜는 사용자가 고른 값 유지
+            st.session_state.input_date = d
+
+    # 최근 입력 미리보기 (세션 목록이 있으면)
+    st.markdown("#### 최근 입력")
+    st.session_state.setdefault("income_records", [])
+    if st.session_state.income_records:
+        recent = sorted(st.session_state.income_records, key=lambda x: x["date"], reverse=True)[:50]
+        df_prev = pd.DataFrame([
+            {
+                "날짜": r.get("date"),
+                "팀원": next((m["name"] for m in st.session_state.get("team_members", []) if m.get("id") == r.get("teamMemberId")), ""),
+                "업체": next((l["name"] for l in st.session_state.get("locations", []) if l.get("id") == r.get("locationId")), ""),
+                "금액(만원)": r.get("amount"),
+                "메모": r.get("memo", ""),
+            } for r in recent
+        ])
         st.dataframe(
-            df_recent,
+            df_prev,
             use_container_width=True,
-            hide_index=True,
-            column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
+            column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")},
+            hide_index=True
         )
     else:
         st.caption("최근 입력 내역이 없습니다.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 
