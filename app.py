@@ -290,7 +290,7 @@ st.session_state.setdefault("records_page", 0)
 tab1, tab2, tab3, tab4 = st.tabs(["수입 입력", "통계", "설정", "기록 관리"])
 
 # ============================
-# Tab 1: 수입 입력 (최신 수정판)
+# Tab 1: 수입 입력 (메모 제거 버전)
 # ============================
 with tab1:
     st.markdown('<div class="block">', unsafe_allow_html=True)
@@ -303,15 +303,14 @@ with tab1:
         st.session_state.selected_date = NOW_KST.date()
 
     with col1:
-        # 날짜 입력 위젯
+        # 날짜 입력
         d = st.date_input(
             "발생일",
-            key="date_widget",                     # 위젯 키를 따로 둠
-            value=st.session_state.selected_date,  # 세션에 저장된 날짜를 기본값으로 사용
+            key="date_widget",                     # 위젯용 key
+            value=st.session_state.selected_date,  # 세션 유지
             format="YYYY-MM-DD"
         )
-        # 선택된 날짜를 세션에 업데이트
-        st.session_state.selected_date = d
+        st.session_state.selected_date = d  # 선택한 날짜 유지
 
         # 팀원 선택
         member_options = {m["name"]: m["id"] for m in st.session_state.team_members}
@@ -336,9 +335,6 @@ with tab1:
         amount = None
         st.error("금액은 숫자만 입력하세요. (예: 50)")
 
-    # 메모 입력
-    memo = st.text_input("메모(선택)", "")
-
     # 저장 버튼
     if st.button("등록하기", type="primary"):
         if not (member_id and loc_id and d and (amount is not None and amount > 0)):
@@ -351,9 +347,8 @@ with tab1:
                 "teamMemberId": member_id,
                 "locationId": loc_id,
                 "amount": float(amount),
-                "memo": memo,
             })
-            st.session_state.selected_date = d  # 선택한 날짜 유지
+            st.session_state.selected_date = d
             st.success("저장되었습니다 ✅")
 
     # 최근 입력 보기
@@ -366,7 +361,6 @@ with tab1:
                 "팀원": next((m["name"] for m in st.session_state.team_members if m["id"] == r["teamMemberId"]), ""),
                 "업체": next((l["name"] for l in st.session_state.locations if l["id"] == r["locationId"]), ""),
                 "금액(만원)": r["amount"],
-                "메모": r.get("memo", ""),
             } for r in recent
         ])
         st.dataframe(
