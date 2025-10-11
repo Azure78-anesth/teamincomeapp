@@ -290,47 +290,43 @@ st.session_state.setdefault("records_page", 0)
 tab1, tab2, tab3, tab4 = st.tabs(["수입 입력", "통계", "설정", "기록 관리"])
 
 # ============================
-# Tab 1: 수입 입력 (날짜 고정 저장)
+# Tab 1: 수입 입력 (선택 날짜 유지/저장 확정판)
 # ============================
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
-
 KST = ZoneInfo("Asia/Seoul")
 today_kst = datetime.now(KST).date()
 
 with tab1:
     st.subheader("수입 입력")
 
-    # 팀원/업체 기본 체크
+    # ── 팀원/업체 목록
     members_all = [m["name"] for m in sorted(st.session_state.get("team_members", []), key=lambda x: x.get("order", 0))]
     locations_all = sorted(st.session_state.get("locations", []), key=lambda x: x.get("order", 0))
 
-    if not members_all:
-        st.info("먼저 설정 탭에서 팀원을 추가하세요.")
-    if not locations_all:
-        st.info("먼저 설정 탭에서 업체를 추가하세요.")
+    # ── 날짜 상태 초기화: '처음 한 번만'
+    if "form_date" not in st.session_state:
+        st.session_state.form_date = today_kst  # ✅ 이후에는 절대 덮어쓰지 않음
 
-    # ✅ 날짜: 한 번만 기본값 설정하고, 사용자가 고른 값을 그대로 유지/저장
-    if "input_date" not in st.session_state:
-        st.session_state["input_date"] = today_kst
-
-    # 입력 위젯 (모바일 고려: 세로 배치)
+    # ── 입력 폼
     st.markdown("#### 입력")
     with st.form("income_form", clear_on_submit=True):
-        # 날짜
-        sel_date = st.date_input("발생일", value=st.session_state["input_date"], key="input_date")
+        # 날짜 (key만으로 상태를 유지시킵니다: value는 세션 값으로 채움)
+        sel_date = st.date_input("발생일",
+                                 value=st.session_state.form_date,
+                                 key="form_date")
 
         # 팀원
         member_name = st.selectbox("팀원", members_all, index=0 if members_all else None)
 
-        # 구분(보험/비보험)
+        # 구분
         category = st.radio("구분", ["보험", "비보험"], horizontal=True)
 
-        # 업장(선택한 구분에 맞춰 필터)
-        loc_options = [l["name"] for l in locations_all if str(l.get("category", "")).strip() == category]
+        # 업체 (구분 필터)
+        loc_options = [l["name"] for l in locations_all if str(l.get("category","")).strip() == category]
         location_name = st.selectbox("업체명", loc_options, index=0 if loc_options else None)
 
-        # 금액(만원)
+        # 금액/메모
         amount_raw = st.text_input("금액(만원 단위)", value="", placeholder="예: 50 (만원)")
         memo = st.text_input("메모(선택)", value="", placeholder="예: 비고/설명")
 
@@ -338,14 +334,14 @@ with tab1:
 
         if submitted:
             errors = []
-            # 날짜 확정: 절대 오늘로 다시 계산하지 않음
-            chosen = st.session_state.get("input_date", today_kst)
+
+            # ✅ 절대 '오늘'로 재계산하지 말고, 세션의 form_date를 그대로 사용
+            chosen = st.session_state.get("form_date", today_kst)
             if isinstance(chosen, datetime):
                 chosen = chosen.date()
             if not isinstance(chosen, date):
                 errors.append("발생일이 올바르지 않습니다.")
 
-            # 팀원/업체 검증
             if not member_name:
                 errors.append("팀원을 선택하세요.")
             if not location_name:
@@ -353,13 +349,12 @@ with tab1:
 
             # 금액 파싱
             amt = None
-            amt_txt = amount_raw.strip().replace(",", "")
-            if amt_txt == "":
+            txt = amount_raw.strip().replace(",", "")
+            if not txt:
                 errors.append("금액을 입력하세요.")
             else:
                 try:
-                    # 만원 단위 -> 정수/실수 허용 (통계가 정수라면 int로 캐스팅)
-                    amt = float(amt_txt)
+                    amt = float(txt)
                     if amt < 0:
                         errors.append("금액은 0 이상이어야 합니다.")
                 except Exception:
@@ -369,67 +364,44 @@ with tab1:
                 for e in errors:
                     st.error(e)
             else:
-                # 저장용 행 구성 (연/월/일 컬럼도 함께 저장하면 통계 편함)
-                y = int(chosen.strftime("%Y"))
-                m = int(chosen.strftime("%m"))
-                d = int(chosen.strftime("%d"))
-
+                y = int(chosen.strftime("%Y")); m = int(chosen.strftime("%m")); d = int(chosen.strftime("%d"))
                 row = {
-                    # 컬럼명은 실제 DB 스키마에 맞춰 조정하세요.
-                    # 날짜 컬럼이 date 타입이면 문자열 'YYYY-MM-DD' 로, timestamp면 KST 자정으로 변환해 사용하세요.
-                    "date": chosen.isoformat(),              # 예: '2025-10-11'
+                    # ← 컬럼명은 DB에 맞게 조정
+                    "date": chosen.isoformat(),  # 예: '2025-10-11' (date 타입이면 권장)
                     # "happened_at": datetime.combine(chosen, datetime.min.time(), tzinfo=KST).isoformat(),
 
-                    "year": y,
-                    "month": m,
-                    "day": d,
-
+                    "year": y, "month": m, "day": d,
                     "member": member_name,
                     "location": location_name,
-                    "category": category,                    # '보험' / '비보험'
-                    "amount": amt,                            # 만원 단위 수치
+                    "category": category,
+                    "amount": amt,
                     "memo": memo.strip() or None,
                 }
 
-                # ✅ Supabase가 연결되어 있으면 DB에 저장
-                #    (sb 클라이언트가 전역에 준비되어 있다는 전제; 없으면 로컬 메모리로 백업 저장)
+                # Supabase 저장 (sb 클라이언트가 준비돼 있을 때)
                 saved = False
                 try:
                     if sb:
                         sb.table("incomes").insert(row).execute()
                         saved = True
                 except Exception as e:
-                    st.warning("DB 저장 중 문제가 발생했어요. 아래 메시지 확인 후 다시 시도하세요.")
+                    st.warning("DB 저장 중 문제가 발생했어요.")
                     st.exception(e)
 
                 if not saved:
-                    # 로컬 임시 저장 (배포/테스트용)
+                    # 로컬 임시 저장 (테스트용)
                     st.session_state.setdefault("incomes_local", [])
                     st.session_state["incomes_local"].append(row)
 
-                # ✅ 폼은 비우되, 사용자가 고른 날짜는 유지
-                st.session_state["input_date"] = chosen
+                # ✅ 사용자가 고른 날짜 그대로 유지
+                st.session_state.form_date = chosen
                 st.success("저장되었습니다.")
                 st.rerun()
 
-    # 최근 입력 간단 미리보기 (선택)
-    st.markdown("#### 최근 입력(요약)")
-    recent = []
-    if "incomes_local" in st.session_state:
-        recent.extend(st.session_state["incomes_local"][-10:])
-    # 필요하면 Supabase에서 최근 10건 가져오기 로직 추가 가능
+    # (선택) 디버그: 현재 선택된 날짜가 무엇인지 눈으로 확인
+    st.caption(f"🧭 선택된 발생일(세션): {st.session_state.get('form_date')}")
 
-    if recent:
-        df_recent = pd.DataFrame(recent)[["date", "member", "category", "location", "amount", "memo"]]
-        df_recent = df_recent.rename(columns={"date": "발생일", "member": "팀원", "category": "구분", "location": "업체명", "amount": "금액(만원)", "memo": "메모"})
-        st.dataframe(
-            df_recent,
-            use_container_width=True,
-            hide_index=True,
-            column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")}
-        )
-    else:
-        st.caption("최근 입력 내역이 없습니다.")
+
 
 
 # ============================
