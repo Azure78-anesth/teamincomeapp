@@ -4,8 +4,6 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any
 
-# 🔧 개발용 key 표시 끄기 (위젯 key: s5_... 안 보이게)
-st.set_option("client.showWidgetKey", False)
 
 # ─────────────────────────────────────────
 # Global: 한국 시간 오늘
