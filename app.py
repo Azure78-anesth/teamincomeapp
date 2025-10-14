@@ -287,7 +287,7 @@ st.session_state.setdefault("edit_income_id", None)
 st.session_state.setdefault("confirm_delete_income_id", None)
 st.session_state.setdefault("records_page", 0)
 
-tab1, tab2, tab3, tab4 = st.tabs(["수입 입력", "통계", "설정", "기록 관리"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["수입 입력", "통계", "설정", "기록 관리", "정산"])
 
 # ============================
 # Tab 1: 수입 입력 (최종 완성 - 오늘 기본 + 다른 날짜 입력 가능)
