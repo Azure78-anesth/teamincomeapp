@@ -569,7 +569,7 @@ with tab2:
             else:
                 st.info('선택한 월에 입력된 데이터가 없어 상세 보기를 표시할 수 없습니다.')
 
-    # ───────── 2) 업체종합 (요구: 연간 → 월간 순서) ─────────
+    # ───────── 2) 업체종합 (요구: 랭킹 모드 순서 = 연간 → 월간) ─────────
     with tab_loc_all:
         st.markdown('#### 업체종합 (보험/비보험 분리)')
         cat_sel = st.radio('분류 선택', ['보험','비보험'], horizontal=True, key='loc_all_cat')
@@ -615,7 +615,7 @@ with tab2:
                         column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')}
                     )
 
-    # ───────── 3) 업체개별 (요구: 단일 선택, 월간 → 연간 순서, 표로 표시) ─────────
+    # ───────── 3) 업체개별 (요구: 단일 선택, 랭킹 모드 순서 = 월간 → 연간, 표로 표시, 우선순위 정렬) ─────────
     with tab_loc_each:
         st.markdown('#### 업체개별 (선택 업체 × 팀원별 결과)')
 
@@ -629,11 +629,25 @@ with tab2:
         # 2) 기준: 월간 → 연간
         mode_e = st.radio('기준 선택', ['월간 순위', '연간 순위'], horizontal=True, index=0, key='loc_each_mode')
 
-        # 3) 업체 단일 선택
-        loc_opts_e = sorted([x for x in dfC_e['location'].dropna().unique().tolist() if x])
+        # 3) 업체 단일 선택  ✅ 커스텀 정렬: [부산숨, 성모안과, 아ми유외과, 이진용외과] + 수입입력 탭 원본 순서
+        priority = ["부산숨", "성모안과", "아미유외과", "이진용외과"]
+
+        # 수입입력 탭(세션)의 locations 원본 순서
+        base_order = [x.get('name') for x in st.session_state.locations if x.get('name')]
+
+        # 현재 분류(cat_sel_e)에 실제 데이터가 존재하는 업체만
+        present = set(dfC_e['location'].dropna().tolist())
+
+        # 원본 순서에서 "현재 존재" 업체만
+        ordered_filtered = [name for name in base_order if name in present]
+
+        # 우선순위 4개를 맨 앞에, 나머지는 원본 순서(중복 제거)
+        loc_opts_e = [n for n in priority if n in ordered_filtered] + [n for n in ordered_filtered if n not in priority]
+
         if not loc_opts_e:
             st.info('선택 가능한 업체가 없습니다.')
             st.stop()
+
         sel_loc_e = st.selectbox('업체 선택', loc_opts_e, index=0, key='loc_each_loc')
 
         # 선택된 업체 필터
@@ -707,6 +721,7 @@ with tab2:
                 hide_index=True,
                 column_config={'연간합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
+
 
 # ============================
 # Tab 3: 설정 (팀원/업체 추가·삭제·순서 이동)
