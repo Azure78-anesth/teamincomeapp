@@ -1176,7 +1176,7 @@ with tab5:
             with tf_col2:
                 tf_amt = st.number_input('금액(만원)', min_value=0, step=1, format="%d", key=f's5_tf_amt_{ym_key}')
             with tf_col3:
-                tf_memo = st.text_input('메모 (예: 오션/발삼 등)', key=f's5_tf_memo_{ym_key}')
+                tf_memo = st.text_input('메모', key=f's5_tf_memo_{ym_key}')
 
             if st.button('팀비 사용 추가', type='primary', key=f's5_btn_add_tf_{ym_key}'):
                 monthly[ym_key]['teamfee_items'].append({
