@@ -389,259 +389,309 @@ with tab1:
 
 
 # ============================
-# 하위 탭: 팀원별 / 업체종합 / 업체개별  (전체 교체본)
+# Tab 2: 통계 (요약 카드 + 상세)
 # ============================
+with tab2:
+    st.markdown('### 통계')
 
-tab_mem, tab_loc_all, tab_loc_each = st.tabs(['팀원별', '업체종합', '업체개별'])
+    # ── ID -> 이름 헬퍼
+    def _name_from(_id: str, coll: list[dict]) -> str:
+        for x in coll:
+            if x.get('id') == _id:
+                return x.get('name', '')
+        return ''
 
-# ───────── 1) 팀원별 ─────────
-with tab_mem:
-    st.markdown('#### 팀원별 수입 통계')
+    # ── 원천 데이터 → DF
+    records = st.session_state.get('income_records', [])
+    if not records:
+        st.info('데이터가 없습니다. 먼저 [수입 입력]에서 데이터를 추가해 주세요.')
+        st.stop()
 
-    members = sorted([m for m in dfY['member'].dropna().unique().tolist() if m])
-    member_select = st.selectbox(
-        '팀원 선택(최상단은 비교 보기)',
-        ['팀원 비교(전체)'] + members,
-        index=0,
-        key='mem_select'
-    )
+    df = pd.DataFrame([{
+        'date': r.get('date'),
+        'amount': r.get('amount'),
+        'member': _name_from(r.get('teamMemberId',''), st.session_state.team_members),
+        'location': _name_from(r.get('locationId',''), st.session_state.locations),
+        'category': next((l.get('category') for l in st.session_state.locations if l.get('id') == r.get('locationId')), ''),
+        'memo': r.get('memo',''),
+    } for r in records])
 
-    if member_select == '팀원 비교(전체)':
-        # 연간 합계 (팀원별)
-        annual_by_member = dfY.groupby('member', dropna=False, as_index=False)['amount'].sum()
-        annual_by_member.rename(columns={'member':'팀원', 'amount':'연간 합계(만원)'}, inplace=True)
-        annual_by_member.sort_values('연간 합계(만원)', ascending=False, inplace=True, kind='mergesort')
-        annual_by_member['순위'] = range(1, len(annual_by_member)+1)
-        annual_by_member = annual_by_member[['순위','팀원','연간 합계(만원)']]
+    # ── 정규화
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0.0)
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.dropna(subset=['date']).copy()
+    df['year']  = df['date'].dt.year.astype(int)
+    df['month'] = df['date'].dt.month.astype(int)
+    df['day']   = df['date'].dt.strftime('%Y-%m-%d')
 
-        st.markdown('##### 연간 합계')
-        st.dataframe(
-            annual_by_member,
-            use_container_width=True,
-            hide_index=True,
-            column_config={'연간 합계(만원)': st.column_config.NumberColumn(format='%.0f')}
+    # ── 연도 선택
+    cur_year = NOW_KST.year
+    years = sorted(df['year'].unique().tolist())
+    default_year = cur_year if cur_year in years else (years[-1] if years else cur_year)
+    c1, c2 = st.columns([3,2])
+    with c1:
+        year = st.selectbox('연도(연간 리셋/독립 집계)', years, index=years.index(default_year), key='stat_year')
+    with c2:
+        st.caption('선택 연도 외 데이터는 저장만 유지(열람 전용)')
+
+    dfY = df[df['year'] == year].copy()
+    if dfY.empty:
+        st.warning(f'{year}년 데이터가 없습니다.')
+        st.stop()
+
+    # ============================
+    # 하위 탭: 팀원별 / 업체종합 / 업체개별
+    # ============================
+    tab_mem, tab_loc_all, tab_loc_each = st.tabs(['팀원별', '업체종합', '업체개별'])
+
+    # ───────── 1) 팀원별 ─────────
+    with tab_mem:
+        st.markdown('#### 팀원별 수입 통계')
+
+        members = sorted([m for m in dfY['member'].dropna().unique().tolist() if m])
+        member_select = st.selectbox(
+            '팀원 선택(최상단은 비교 보기)',
+            ['팀원 비교(전체)'] + members,
+            index=0,
+            key='mem_select'
         )
 
-        # 월 선택 (보험/비보험 분리)
-        months_avail_all = sorted(dfY['month'].unique().tolist())
-        if months_avail_all:
-            month_sel2 = st.selectbox('월 선택(보험/비보험 분리 보기)', months_avail_all, index=len(months_avail_all)-1, key='mem_month_all')
-            df_month = dfY[dfY['month'] == month_sel2].copy()
-            by_mem_cat = df_month.groupby(['member','category'], dropna=False)['amount'].sum().reset_index()
-            pivot = by_mem_cat.pivot(index='member', columns='category', values='amount').fillna(0.0)
-            for col in ['보험','비보험']:
-                if col not in pivot.columns: pivot[col] = 0.0
-            pivot = pivot[['보험','비보험']]
-            pivot['총합(만원)'] = pivot['보험'] + pivot['비보험']
-            pivot = pivot.sort_values('총합(만원)', ascending=False).reset_index().rename(columns={'member':'팀원'})
+        if member_select == '팀원 비교(전체)':
+            # 연간 합계 (팀원별)
+            annual_by_member = dfY.groupby('member', dropna=False, as_index=False)['amount'].sum()
+            annual_by_member.rename(columns={'member':'팀원', 'amount':'연간 합계(만원)'}, inplace=True)
+            annual_by_member.sort_values('연간 합계(만원)', ascending=False, inplace=True, kind='mergesort')
+            annual_by_member['순위'] = range(1, len(annual_by_member)+1)
+            annual_by_member = annual_by_member[['순위','팀원','연간 합계(만원)']]
 
-            st.markdown(f'##### {month_sel2}월 · 보험/비보험 분리 + 총합')
+            st.markdown('##### 연간 합계')
             st.dataframe(
-                pivot[['팀원','총합(만원)','보험','비보험']],
+                annual_by_member,
                 use_container_width=True,
                 hide_index=True,
-                column_config={c: st.column_config.NumberColumn(format='%.0f') for c in ['총합(만원)','보험','비보험']}
+                column_config={'연간 합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
+
+            # 월 선택 (보험/비보험 분리)
+            months_avail_all = sorted(dfY['month'].unique().tolist())
+            if months_avail_all:
+                month_sel2 = st.selectbox('월 선택(보험/비보험 분리 보기)', months_avail_all, index=len(months_avail_all)-1, key='mem_month_all')
+                df_month = dfY[dfY['month'] == month_sel2].copy()
+                by_mem_cat = df_month.groupby(['member','category'], dropna=False)['amount'].sum().reset_index()
+                pivot = by_mem_cat.pivot(index='member', columns='category', values='amount').fillna(0.0)
+                for col in ['보험','비보험']:
+                    if col not in pivot.columns: pivot[col] = 0.0
+                pivot = pivot[['보험','비보험']]
+                pivot['총합(만원)'] = pivot['보험'] + pivot['비보험']
+                pivot = pivot.sort_values('총합(만원)', ascending=False).reset_index().rename(columns={'member':'팀원'})
+
+                st.markdown(f'##### {month_sel2}월 · 보험/비보험 분리 + 총합')
+                st.dataframe(
+                    pivot[['팀원','총합(만원)','보험','비보험']],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={c: st.column_config.NumberColumn(format='%.0f') for c in ['총합(만원)','보험','비보험']}
+                )
+            else:
+                st.info('해당 연도의 월 데이터가 없습니다.')
+
         else:
-            st.info('해당 연도의 월 데이터가 없습니다.')
+            # 해당 팀원 데이터
+            dfM_all = dfY[dfY['member'] == member_select].copy()
+            months_avail = sorted(dfM_all['month'].unique().tolist()) or list(range(1, 13))
+            month_sel = st.selectbox('월 선택(일별 상세/요약)', months_avail, index=(len(months_avail)-1 if months_avail else 0), key='mem_month_single')
 
-    else:
-        # 해당 팀원 데이터
-        dfM_all = dfY[dfY['member'] == member_select].copy()
-        months_avail = sorted(dfM_all['month'].unique().tolist()) or list(range(1, 13))
-        month_sel = st.selectbox('월 선택(일별 상세/요약)', months_avail, index=(len(months_avail)-1 if months_avail else 0), key='mem_month_single')
+            # 연간 요약
+            y_ins_amt = dfM_all.loc[dfM_all['category']=='보험',   'amount'].sum()
+            y_non_amt = dfM_all.loc[dfM_all['category']=='비보험', 'amount'].sum()
+            y_tot_amt = dfM_all['amount'].sum()
+            y_ins_cnt = int((dfM_all['category']=='보험').sum())
+            y_non_cnt = int((dfM_all['category']=='비보험').sum())
+            y_tot_cnt = int(len(dfM_all))
 
-        # 연간 요약
-        y_ins_amt = dfM_all.loc[dfM_all['category']=='보험',   'amount'].sum()
-        y_non_amt = dfM_all.loc[dfM_all['category']=='비보험', 'amount'].sum()
-        y_tot_amt = dfM_all['amount'].sum()
-        y_ins_cnt = int((dfM_all['category']=='보험').sum())
-        y_non_cnt = int((dfM_all['category']=='비보험').sum())
-        y_tot_cnt = int(len(dfM_all))
+            st.markdown('##### 연간 요약')
+            metric_cards([
+                ("연간 총합(만원)", f"{y_tot_amt:,.0f}"),
+                ("연간 보험(만원)", f"{y_ins_amt:,.0f}"),
+                ("연간 비보험(만원)", f"{y_non_amt:,.0f}"),
+                ("연간 건수(총합)", f"{y_tot_cnt:,}"),
+                ("연간 건수(보험)", f"{y_ins_cnt:,}"),
+                ("연간 건수(비보험)", f"{y_non_cnt:,}"),
+            ])
 
-        st.markdown('##### 연간 요약')
-        metric_cards([
-            ("연간 총합(만원)", f"{y_tot_amt:,.0f}"),
-            ("연간 보험(만원)", f"{y_ins_amt:,.0f}"),
-            ("연간 비보험(만원)", f"{y_non_amt:,.0f}"),
-            ("연간 건수(총합)", f"{y_tot_cnt:,}"),
-            ("연간 건수(보험)", f"{y_ins_cnt:,}"),
-            ("연간 건수(비보험)", f"{y_non_cnt:,}"),
-        ])
+            # 월간 요약
+            dfM_month = dfM_all[dfM_all['month'] == month_sel].copy()
+            m_ins_amt = dfM_month.loc[dfM_month['category']=='보험',   'amount'].sum()
+            m_non_amt = dfM_month.loc[dfM_month['category']=='비보험', 'amount'].sum()
+            m_tot_amt = dfM_month['amount'].sum()
+            m_ins_cnt = int((dfM_month['category']=='보험').sum())
+            m_non_cnt = int((dfM_month['category']=='비보험').sum())
+            m_tot_cnt = int(len(dfM_month))
 
-        # 월간 요약
-        dfM_month = dfM_all[dfM_all['month'] == month_sel].copy()
-        m_ins_amt = dfM_month.loc[dfM_month['category']=='보험',   'amount'].sum()
-        m_non_amt = dfM_month.loc[dfM_month['category']=='비보험', 'amount'].sum()
-        m_tot_amt = dfM_month['amount'].sum()
-        m_ins_cnt = int((dfM_month['category']=='보험').sum())
-        m_non_cnt = int((dfM_month['category']=='비보험').sum())
-        m_tot_cnt = int(len(dfM_month))
+            st.markdown(f'##### {month_sel}월 요약')
+            metric_cards([
+                ("월 총합(만원)", f"{m_tot_amt:,.0f}"),
+                ("월 보험(만원)", f"{m_ins_amt:,.0f}"),
+                ("월 비보험(만원)", f"{m_non_amt:,.0f}"),
+                ("월 건수(총합)", f"{m_tot_cnt:,}"),
+                ("월 건수(보험)", f"{m_ins_cnt:,}"),
+                ("월 건수(비보험)", f"{m_non_cnt:,}"),
+            ])
 
-        st.markdown(f'##### {month_sel}월 요약')
-        metric_cards([
-            ("월 총합(만원)", f"{m_tot_amt:,.0f}"),
-            ("월 보험(만원)", f"{m_ins_amt:,.0f}"),
-            ("월 비보험(만원)", f"{m_non_amt:,.0f}"),
-            ("월 건수(총합)", f"{m_tot_cnt:,}"),
-            ("월 건수(보험)", f"{m_ins_cnt:,}"),
-            ("월 건수(비보험)", f"{m_non_cnt:,}"),
-        ])
-
-        # 일별 합계
-        daily = (
-            dfM_all[dfM_all['month'] == month_sel]
-            .groupby('day', dropna=False)['amount'].sum().reset_index()
-            .rename(columns={'day':'날짜','amount':'금액(만원)'}).sort_values('날짜')
-        )
-        st.markdown(f'##### {member_select} · {month_sel}월 일별 합계')
-        st.dataframe(
-            daily,
-            use_container_width=True,
-            hide_index=True,
-            column_config={'금액(만원)': st.column_config.NumberColumn(format='%.0f')}
-        )
-
-        # 상세 보기
-        days_in_month = sorted(dfM_all.loc[dfM_all['month'] == month_sel, 'day'].dropna().unique().tolist())
-        if days_in_month:
-            sel_day = st.selectbox('상세 보기 날짜 선택', days_in_month, key='member_day_detail')
-            details = dfM_all[(dfM_all['day'] == sel_day) & (dfM_all['month'] == month_sel)][
-                ['day','location','category','amount','memo']
-            ].copy().rename(columns={'day':'날짜','location':'업체','category':'분류','amount':'금액(만원)','memo':'메모'})
-            st.markdown(f'##### {member_select} · {sel_day} 입력 내역')
+            # 일별 합계
+            daily = (
+                dfM_all[dfM_all['month'] == month_sel]
+                .groupby('day', dropna=False)['amount'].sum().reset_index()
+                .rename(columns={'day':'날짜','amount':'금액(만원)'}).sort_values('날짜')
+            )
+            st.markdown(f'##### {member_select} · {month_sel}월 일별 합계')
             st.dataframe(
-                details.sort_values(['업체','금액(만원)'], ascending=[True, False]),
+                daily,
                 use_container_width=True,
                 hide_index=True,
                 column_config={'금액(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
-        else:
-            st.info('선택한 월에 입력된 데이터가 없어 상세 보기를 표시할 수 없습니다.')
 
-# ───────── 2) 업체종합 (기존 업체별과 동일, 이름만 변경) ─────────
-with tab_loc_all:
-    st.markdown('#### 업체종합 (보험/비보험 분리)')
-    cat_sel = st.radio('분류 선택', ['보험','비보험'], horizontal=True, key='loc_all_cat')
-    dfC = dfY[dfY['category'] == cat_sel].copy()
-
-    if dfC.empty:
-        st.warning(f'{year}년 {cat_sel} 데이터가 없습니다.')
-    else:
-        rank_mode = st.radio('랭킹 모드', ['월별 순위','연간 순위'], horizontal=True, index=0, key='loc_all_mode')
-
-        if rank_mode == '연간 순위':
-            annual_loc = (
-                dfC.groupby('location', dropna=False)['amount'].sum().reset_index()
-                .rename(columns={'location':'업체','amount':'연간합계(만원)'})
-                .sort_values('연간합계(만원)', ascending=False).reset_index(drop=True)
-            )
-            annual_loc.insert(0, '순위', annual_loc.index + 1)
-            st.markdown(f'##### {cat_sel} · 업체별 연간 순위')
-            st.dataframe(
-                annual_loc[['순위','업체','연간합계(만원)']],
-                use_container_width=True,
-                hide_index=True,
-                column_config={'연간합계(만원)': st.column_config.NumberColumn(format='%.0f')}
-            )
-        else:
-            months_avail_c = sorted(dfC['month'].unique().tolist())
-            if not months_avail_c:
-                st.info('선택 가능한 월이 없습니다.')
-            else:
-                month_rank = st.selectbox('월 선택(해당 월만 표시)', months_avail_c, index=len(months_avail_c)-1, key='loc_all_month')
-                df_month = dfC[dfC['month'] == month_rank].copy()
-                monthly_loc = (
-                    df_month.groupby('location', dropna=False)['amount'].sum().reset_index()
-                    .rename(columns={'location':'업체','amount':'월합계(만원)'})
-                    .sort_values('월합계(만원)', ascending=False).reset_index(drop=True)
-                )
-                monthly_loc.insert(0, '순위', monthly_loc.index + 1)
-                st.markdown(f'##### {cat_sel} · {month_rank}월 업체별 순위')
+            # 상세 보기
+            days_in_month = sorted(dfM_all.loc[dfM_all['month'] == month_sel, 'day'].dropna().unique().tolist())
+            if days_in_month:
+                sel_day = st.selectbox('상세 보기 날짜 선택', days_in_month, key='member_day_detail')
+                details = dfM_all[(dfM_all['day'] == sel_day) & (dfM_all['month'] == month_sel)][
+                    ['day','location','category','amount','memo']
+                ].copy().rename(columns={'day':'날짜','location':'업체','category':'분류','amount':'금액(만원)','memo':'메모'})
+                st.markdown(f'##### {member_select} · {sel_day} 입력 내역')
                 st.dataframe(
-                    monthly_loc[['순위','업체','월합계(만원)']],
+                    details.sort_values(['업체','금액(만원)'], ascending=[True, False]),
                     use_container_width=True,
                     hide_index=True,
-                    column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')}
+                    column_config={'금액(만원)': st.column_config.NumberColumn(format='%.0f')}
                 )
+            else:
+                st.info('선택한 월에 입력된 데이터가 없어 상세 보기를 표시할 수 없습니다.')
 
-# ───────── 3) 업체개별 (신규) ─────────
-with tab_loc_each:
-    st.markdown('#### 업체개별 (선택 업체 × 팀원별 결과)')
+    # ───────── 2) 업체종합 (기존 업체별과 동일, 이름만 변경) ─────────
+    with tab_loc_all:
+        st.markdown('#### 업체종합 (보험/비보험 분리)')
+        cat_sel = st.radio('분류 선택', ['보험','비보험'], horizontal=True, key='loc_all_cat')
+        dfC = dfY[dfY['category'] == cat_sel].copy()
 
-    # 1) 분류(보험/비보험)
-    cat_sel_e = st.radio('분류 선택', ['보험', '비보험'], horizontal=True, key='loc_each_cat')
+        if dfC.empty:
+            st.warning(f'{year}년 {cat_sel} 데이터가 없습니다.')
+        else:
+            rank_mode = st.radio('랭킹 모드', ['월별 순위','연간 순위'], horizontal=True, index=0, key='loc_all_mode')
 
-    dfC_e = dfY[dfY['category'] == cat_sel_e].copy()
-    if dfC_e.empty:
-        st.warning(f"{year}년 {cat_sel_e} 데이터가 없습니다.")
-        st.stop()
+            if rank_mode == '연간 순위':
+                annual_loc = (
+                    dfC.groupby('location', dropna=False)['amount'].sum().reset_index()
+                    .rename(columns={'location':'업체','amount':'연간합계(만원)'})
+                    .sort_values('연간합계(만원)', ascending=False).reset_index(drop=True)
+                )
+                annual_loc.insert(0, '순위', annual_loc.index + 1)
+                st.markdown(f'##### {cat_sel} · 업체별 연간 순위')
+                st.dataframe(
+                    annual_loc[['순위','업체','연간합계(만원)']],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={'연간합계(만원)': st.column_config.NumberColumn(format='%.0f')}
+                )
+            else:
+                months_avail_c = sorted(dfC['month'].unique().tolist())
+                if not months_avail_c:
+                    st.info('선택 가능한 월이 없습니다.')
+                else:
+                    month_rank = st.selectbox('월 선택(해당 월만 표시)', months_avail_c, index=len(months_avail_c)-1, key='loc_all_month')
+                    df_month = dfC[dfC['month'] == month_rank].copy()
+                    monthly_loc = (
+                        df_month.groupby('location', dropna=False)['amount'].sum().reset_index()
+                        .rename(columns={'location':'업체','amount':'월합계(만원)'})
+                        .sort_values('월합계(만원)', ascending=False).reset_index(drop=True)
+                    )
+                    monthly_loc.insert(0, '순위', monthly_loc.index + 1)
+                    st.markdown(f'##### {cat_sel} · {month_rank}월 업체별 순위')
+                    st.dataframe(
+                        monthly_loc[['순위','업체','월합계(만원)']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')}
+                    )
 
-    # 2) 기준: 월별 → 연간
-    mode_e = st.radio('기준 선택', ['월별 순위', '연간 순위'], horizontal=True, index=0, key='loc_each_mode')
+    # ───────── 3) 업체개별 (신규) ─────────
+    with tab_loc_each:
+        st.markdown('#### 업체개별 (선택 업체 × 팀원별 결과)')
 
-    # 3) 업체 멀티 선택
-    loc_opts_e = sorted([x for x in dfC_e['location'].dropna().unique().tolist() if x])
-    if not loc_opts_e:
-        st.info('선택 가능한 업체가 없습니다.')
-        st.stop()
-    default_locs_e = loc_opts_e[:1]
-    sel_locs_e = st.multiselect('업체 선택 (복수 선택 가능)', loc_opts_e, default=default_locs_e, key='loc_each_locs')
+        # 1) 분류(보험/비보험)
+        cat_sel_e = st.radio('분류 선택', ['보험', '비보험'], horizontal=True, key='loc_each_cat')
 
-    if not sel_locs_e:
-        st.info('업체를 하나 이상 선택해 주세요.')
-        st.stop()
-
-    # 선택된 업체 필터
-    dfS_e = dfC_e[dfC_e['location'].isin(sel_locs_e)].copy()
-
-    # 출력 유틸: "이름 : 금액" + 총합
-    def render_name_amount_list(title: str, ser: pd.Series, unit: str = '만원'):
-        st.markdown(f'**{title}**')
-        if ser.empty:
-            st.write('- (데이터 없음)')
-            return
-        ser = ser.sort_values(ascending=False)
-        for name, val in ser.items():
-            label = name if (isinstance(name, str) and str(name).strip()) else '(이름없음)'
-            st.write(f'- {label} : {val:,.0f}')
-        st.markdown(f'**총합: {ser.sum():,.0f} {unit}**')
-
-    if mode_e == '월별 순위':
-        months_avail_e = sorted(dfS_e['month'].dropna().unique().tolist())
-        if not months_avail_e:
-            st.info('선택된 업체에 해당하는 월 데이터가 없습니다.')
+        dfC_e = dfY[dfY['category'] == cat_sel_e].copy()
+        if dfC_e.empty:
+            st.warning(f"{year}년 {cat_sel_e} 데이터가 없습니다.")
             st.stop()
 
-        month_sel_e = st.selectbox('월 선택', months_avail_e, index=len(months_avail_e) - 1, key='loc_each_month')
+        # 2) 기준: 월별 → 연간
+        mode_e = st.radio('기준 선택', ['월별 순위', '연간 순위'], horizontal=True, index=0, key='loc_each_mode')
 
-        st.markdown(
-            f"**선택된 업체:** {', '.join(sel_locs_e)}  \n"
-            f"**조건:** {cat_sel_e} · {month_sel_e}월 기준"
-        )
+        # 3) 업체 멀티 선택
+        loc_opts_e = sorted([x for x in dfC_e['location'].dropna().unique().tolist() if x])
+        if not loc_opts_e:
+            st.info('선택 가능한 업체가 없습니다.')
+            st.stop()
+        default_locs_e = loc_opts_e[:1]
+        sel_locs_e = st.multiselect('업체 선택 (복수 선택 가능)', loc_opts_e, default=default_locs_e, key='loc_each_locs')
 
-        # 팀원별 월간 합계 (선택 업체 합산)
-        dfM_e = dfS_e[dfS_e['month'] == month_sel_e].copy()
-        by_member_month_e = dfM_e.groupby('member', dropna=False)['amount'].sum()
+        if not sel_locs_e:
+            st.info('업체를 하나 이상 선택해 주세요.')
+            st.stop()
 
-        # 팀원별 연간 합계 (참고)
-        by_member_year_e = dfS_e.groupby('member', dropna=False)['amount'].sum()
+        # 선택된 업체 필터
+        dfS_e = dfC_e[dfC_e['location'].isin(sel_locs_e)].copy()
 
-        # (요구) 월간 내림차순 표시 + 총합
-        render_name_amount_list('팀원별 월간 합계 (내림차순)', by_member_month_e)
+        # 출력 유틸: "이름 : 금액" + 총합
+        def render_name_amount_list(title: str, ser: pd.Series, unit: str = '만원'):
+            st.markdown(f'**{title}**')
+            if ser.empty:
+                st.write('- (데이터 없음)')
+                return
+            ser = ser.sort_values(ascending=False)
+            for name, val in ser.items():
+                label = name if (isinstance(name, str) and str(name).strip()) else '(이름없음)'
+                st.write(f'- {label} : {val:,.0f}')
+            st.markdown(f'**총합: {ser.sum():,.0f} {unit}**')
 
-        # (요구) 연간 합계도 제공(참고)
-        with st.expander('참고: 팀원별 연간 합계 (내림차순)'):
-            render_name_amount_list('팀원별 연간 합계', by_member_year_e)
+        if mode_e == '월별 순위':
+            months_avail_e = sorted(dfS_e['month'].dropna().unique().tolist())
+            if not months_avail_e:
+                st.info('선택된 업체에 해당하는 월 데이터가 없습니다.')
+                st.stop()
 
-    else:  # 연간 순위
-        st.markdown(
-            f"**선택된 업체:** {', '.join(sel_locs_e)}  \n"
-            f"**조건:** {cat_sel_e} · 연간 기준"
-        )
+            month_sel_e = st.selectbox('월 선택', months_avail_e, index=len(months_avail_e) - 1, key='loc_each_month')
 
-        by_member_year_e = dfS_e.groupby('member', dropna=False)['amount'].sum()
-        render_name_amount_list('팀원별 연간 합계 (내림차순)', by_member_year_e)
+            st.markdown(
+                f"**선택된 업체:** {', '.join(sel_locs_e)}  \n"
+                f"**조건:** {cat_sel_e} · {month_sel_e}월 기준"
+            )
+
+            # 팀원별 월간 합계 (선택 업체 합산)
+            dfM_e = dfS_e[dfS_e['month'] == month_sel_e].copy()
+            by_member_month_e = dfM_e.groupby('member', dropna=False)['amount'].sum()
+
+            # 팀원별 연간 합계 (참고)
+            by_member_year_e = dfS_e.groupby('member', dropna=False)['amount'].sum()
+
+            # (요구) 월간 내림차순 표시 + 총합
+            render_name_amount_list('팀원별 월간 합계 (내림차순)', by_member_month_e)
+
+            # (요구) 연간 합계도 제공(참고)
+            with st.expander('참고: 팀원별 연간 합계 (내림차순)'):
+                render_name_amount_list('팀원별 연간 합계', by_member_year_e)
+
+        else:  # 연간 순위
+            st.markdown(
+                f"**선택된 업체:** {', '.join(sel_locs_e)}  \n"
+                f"**조건:** {cat_sel_e} · 연간 기준"
+            )
+
+            by_member_year_e = dfS_e.groupby('member', dropna=False)['amount'].sum()
+            render_name_amount_list('팀원별 연간 합계 (내림차순)', by_member_year_e)
 
 # ============================
 # Tab 3: 설정 (팀원/업체 추가·삭제·순서 이동)
