@@ -1042,8 +1042,8 @@ with tab4:
 
 
 # ============================
-# Tab 5: 정산 (Supabase 연동 최종본)
-# - 빈 결과에서도 안전하게 동작 (maybe_single/limit(1) 패턴)
+# Tab 5: 정산 (Supabase 연동, 안전 쿼리)
+# - 빈 결과에서도 오류 없이 동작 (maybe_single / limit(1))
 # - 수입 없어도 팀비/이체만으로 정산 표시
 # - 금액 입력칸은 빈칸(정수)
 # - 팀비/이체 내역: 표 + 수정/삭제(확인)
@@ -1064,14 +1064,6 @@ with tab5:
     """, unsafe_allow_html=True)
 
     # ─────────────────────────────
-    # Supabase 핸들 (상단 get_supabase_client() 로드됨)
-    # ─────────────────────────────
-    # 상단에서 `sb = get_supabase_client()` 이미 실행됨
-    # 여기서는 전역 sb를 그대로 사용
-    # (세션에 저장된 이름이 따로 있다면 여길 맞춰 변경)
-    # sb 변수 사용
-
-    # ─────────────────────────────
     # Helpers
     # ─────────────────────────────
     def _name_from(_id: str, coll: list[dict]) -> str:
@@ -1088,7 +1080,11 @@ with tab5:
             return pd.DataFrame(columns=["member","amount"])
         return df_in.groupby("member", dropna=False)["amount"].sum().reset_index()
 
-    # ── Supabase CRUD (빈 결과 안전 처리)
+    # ── Supabase 핸들 (상단의 get_supabase_client()로 생성된 sb 사용)
+    #    필요 시 st.session_state.supabase 로도 받아봄
+    sb = sb or st.session_state.get("supabase")
+
+    # ── Supabase CRUD (빈 결과 안전)
     def sb_get_month(ym_key: str):
         if not sb:
             return None
@@ -1096,10 +1092,10 @@ with tab5:
             qb = sb.table("settlement_month").select("*").eq("ym_key", ym_key)
             # 라이브러리 버전에 따라 maybe_single이 없을 수 있음
             try:
-                res = qb.maybe_single().execute()  # 0행: None, 1행: dict, 다수: 오류
+                res = qb.maybe_single().execute()   # 0행: data=None, 1행: dict
                 return getattr(res, "data", None)
             except AttributeError:
-                res = qb.limit(1).execute()
+                res = qb.limit(1).execute()         # 대체 전략
                 data = getattr(res, "data", None) or []
                 return data[0] if data else None
         except Exception as e:
@@ -1378,7 +1374,7 @@ with tab5:
                 c1, c2, c3, c4, c5, c6, c7 = st.columns([1,0.3,1,2,1,1,1])
                 c1.write(row["from"]); c2.write("→"); c3.write(row["to"])
                 c4.write(row.get("memo","")); c5.write(f"{row['amount']}만원")
-                edit_clicked = c6.button("수정", key=f"tr_edit_{row['id']}_{ym_key"])
+                edit_clicked = c6.button("수정", key=f"tr_edit_{row['id']}_{ym_key}")
                 del_clicked  = c7.button("삭제", key=f"tr_del_{row['id']}_{ym_key}")
 
                 if del_clicked and sb:
@@ -1391,12 +1387,8 @@ with tab5:
                     new_from = e1.selectbox("보낸 사람", members_all,
                                             index=(members_all.index(row["from"]) if row["from"] in members_all else 0),
                                             key=f"tr_edit_from_{row['id']}_{ym_key}")
-                    # 받는 사람 목록은 보낸 사람과 달라야 하므로 동적으로
                     recv_candidates = [m for m in members_all if m != new_from]
-                    if row["to"] in recv_candidates:
-                        to_idx = recv_candidates.index(row["to"])
-                    else:
-                        to_idx = 0
+                    to_idx = recv_candidates.index(row["to"]) if row["to"] in recv_candidates else 0
                     new_to   = e2.selectbox("받는 사람", recv_candidates, index=to_idx, key=f"tr_edit_to_{row['id']}_{ym_key}")
                     new_amt  = e3.text_input("금액(만원)", value=str(row["amount"]), key=f"tr_edit_amt_{row['id']}_{ym_key}")
                     new_memo = e4.text_input("메모", value=row.get("memo",""), key=f"tr_edit_memo_{row['id']}_{ym_key}")
