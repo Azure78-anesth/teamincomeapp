@@ -1211,7 +1211,7 @@ with tab5:
         with st.expander("팀비 사용 입력", expanded=True):
             c1,c2,c3 = st.columns([1,1,2])
             w = c1.selectbox("사용자", members_all)
-            a = c2.text_input("금액(만원)", "")
+            a = c2.text_input("금액(만원)", "", key="teamfee_amount")
             m = c3.text_input("메모","")
             if st.button("추가", type="primary", key="tf_add"):
                 if a.strip().isdigit():
@@ -1238,7 +1238,7 @@ with tab5:
             c1,c2,c3,c4 = st.columns([1,1,1,2])
             f = c1.selectbox("보낸 사람", members_all)
             t = c2.selectbox("받는 사람", [x for x in members_all if x!=f])
-            a = c3.text_input("금액(만원)","")
+            a = c3.text_input("금액(만원)","", key="transfer_amount")
             m = c4.text_input("메모","")
             if st.button("추가", type="primary", key="tr_add"):
                 if a.strip().isdigit():
