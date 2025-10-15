@@ -1062,7 +1062,7 @@ with tab5:
     import json, time
 
     SUPA_URL  = st.secrets["SUPABASE_URL"]
-    SUPA_KEY  = st.secrets["SUPABASE_KEY"]
+    SUPA_KEY  = st.secrets["SUPABASE_ANON_KEY"]
     sb = create_client(SUPA_URL, SUPA_KEY)
     sdb = sb.schema("public")
 
