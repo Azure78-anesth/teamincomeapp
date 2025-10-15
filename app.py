@@ -1043,10 +1043,11 @@ with tab4:
 
 # ============================
 # Tab 5: 정산 (Supabase 연동 최종본)
+# - 빈 결과에서도 안전하게 동작 (maybe_single/limit(1) 패턴)
 # - 수입 없어도 팀비/이체만으로 정산 표시
-# - 입력 금액은 빈칸(정수만)
-# - 팀비/이체 내역: 표 + 수정/삭제
-# - 웨일 브라우저 expander 보정 CSS 유지
+# - 금액 입력칸은 빈칸(정수)
+# - 팀비/이체 내역: 표 + 수정/삭제(확인)
+# - 웨일 브라우저 expander 보정 CSS
 # ============================
 with tab5:
     st.markdown("### 정산")
@@ -1063,9 +1064,12 @@ with tab5:
     """, unsafe_allow_html=True)
 
     # ─────────────────────────────
-    # Supabase 핸들 (상단에서 get_supabase_client로 생성됨)
+    # Supabase 핸들 (상단 get_supabase_client() 로드됨)
     # ─────────────────────────────
-    sb = st.session_state.get("supabase", None) or sb  # 상단 변수 재사용
+    # 상단에서 `sb = get_supabase_client()` 이미 실행됨
+    # 여기서는 전역 sb를 그대로 사용
+    # (세션에 저장된 이름이 따로 있다면 여길 맞춰 변경)
+    # sb 변수 사용
 
     # ─────────────────────────────
     # Helpers
@@ -1084,14 +1088,27 @@ with tab5:
             return pd.DataFrame(columns=["member","amount"])
         return df_in.groupby("member", dropna=False)["amount"].sum().reset_index()
 
-    # ── Supabase CRUD
+    # ── Supabase CRUD (빈 결과 안전 처리)
     def sb_get_month(ym_key: str):
-        if not sb: return None
-        res = sb.table("settlement_month").select("*").eq("ym_key", ym_key).single().execute()
-        return getattr(res, "data", None)
+        if not sb:
+            return None
+        try:
+            qb = sb.table("settlement_month").select("*").eq("ym_key", ym_key)
+            # 라이브러리 버전에 따라 maybe_single이 없을 수 있음
+            try:
+                res = qb.maybe_single().execute()  # 0행: None, 1행: dict, 다수: 오류
+                return getattr(res, "data", None)
+            except AttributeError:
+                res = qb.limit(1).execute()
+                data = getattr(res, "data", None) or []
+                return data[0] if data else None
+        except Exception as e:
+            st.warning(f"월 설정 조회 실패: {e}")
+            return None
 
     def sb_upsert_month(ym_key: str, sungmo_fixed: int, recv_bs: str, recv_am: str):
-        if not sb: return
+        if not sb:
+            return
         from datetime import datetime, timezone
         payload = {
             "ym_key": ym_key,
@@ -1103,45 +1120,56 @@ with tab5:
         sb.table("settlement_month").upsert(payload, on_conflict="ym_key").execute()
 
     def sb_list_teamfee(ym_key: str):
-        if not sb: return []
-        return (sb.table("settlement_teamfee").select("*").eq("ym_key", ym_key)
-                .order("created_at", desc=False).execute().data or [])
+        if not sb:
+            return []
+        res = (sb.table("settlement_teamfee").select("*")
+               .eq("ym_key", ym_key).order("created_at", desc=False).execute())
+        return getattr(res, "data", None) or []
 
     def sb_add_teamfee(ym_key: str, who: str, amount: int, memo: str):
-        if not sb: return
+        if not sb:
+            return
         sb.table("settlement_teamfee").insert({
             "ym_key": ym_key, "who": who, "amount": int(amount), "memo": memo
         }).execute()
 
     def sb_update_teamfee(item_id: int, who: str, amount: int, memo: str):
-        if not sb: return
+        if not sb:
+            return
         sb.table("settlement_teamfee").update({
             "who": who, "amount": int(amount), "memo": memo
         }).eq("id", item_id).execute()
 
     def sb_delete_teamfee(item_id: int):
-        if not sb: return
+        if not sb:
+            return
         sb.table("settlement_teamfee").delete().eq("id", item_id).execute()
 
     def sb_list_transfer(ym_key: str):
-        if not sb: return []
-        return (sb.table("settlement_transfer").select("*").eq("ym_key", ym_key)
-                .order("created_at", desc=False).execute().data or [])
+        if not sb:
+            return []
+        res = (sb.table("settlement_transfer").select("*")
+               .eq("ym_key", ym_key).order("created_at", desc=False).execute())
+        return getattr(res, "data", None) or []
 
     def sb_add_transfer(ym_key: str, from_name: str, to_name: str, amount: int, memo: str):
-        if not sb: return
+        if not sb:
+            return
         sb.table("settlement_transfer").insert({
-            "ym_key": ym_key, "from": from_name, "to": to_name, "amount": int(amount), "memo": memo
+            "ym_key": ym_key, "from": from_name, "to": to_name,
+            "amount": int(amount), "memo": memo
         }).execute()
 
     def sb_update_transfer(item_id: int, from_name: str, to_name: str, amount: int, memo: str):
-        if not sb: return
+        if not sb:
+            return
         sb.table("settlement_transfer").update({
             "from": from_name, "to": to_name, "amount": int(amount), "memo": memo
         }).eq("id", item_id).execute()
 
     def sb_delete_transfer(item_id: int):
-        if not sb: return
+        if not sb:
+            return
         sb.table("settlement_transfer").delete().eq("id", item_id).execute()
 
     # ─────────────────────────────
@@ -1185,10 +1213,10 @@ with tab5:
     ym_key = f"{year:04d}-{month:02d}"
 
     # ─────────────────────────────
-    # 월 설정 로드/생성
+    # 월 설정 로드/생성 (빈 결과 안전)
     # ─────────────────────────────
     if not sb:
-        st.warning("Supabase가 설정되지 않았습니다. 정산 입력을 저장하려면 secrets에 SUPABASE 설정이 필요합니다.")
+        st.warning("Supabase가 설정되지 않았습니다. 정산 입력 저장/공유를 하려면 secrets에 SUPABASE 설정이 필요합니다.")
         month_row = {
             "ym_key": ym_key, "sungmo_fixed": 650,
             "receiver_busansoom": (members_all[0] if members_all else ""),
@@ -1199,8 +1227,14 @@ with tab5:
         if not month_row:
             default_bs = members_all[0] if members_all else ""
             default_am = members_all[0] if members_all else ""
-            sb_upsert_month(ym_key, 650, default_bs, default_am)
-            month_row = sb_get_month(ym_key)
+            try:
+                sb_upsert_month(ym_key, 650, default_bs, default_am)
+            except Exception as e:
+                st.error(f"월 설정 생성 실패: {e}")
+            month_row = sb_get_month(ym_key) or {
+                "ym_key": ym_key, "sungmo_fixed": 650,
+                "receiver_busansoom": default_bs, "receiver_amiyou": default_am
+            }
 
     sungmo_fixed = int(month_row["sungmo_fixed"])
     recv_bs      = month_row["receiver_busansoom"]
@@ -1258,7 +1292,9 @@ with tab5:
                 except ValueError:
                     st.error("금액을 숫자로 입력하세요.")
 
-        # ───────── 팀비 사용 내역 (표 + 수정/삭제) ─────────
+        # ───────── 팀비 사용 내역 (표 + 수정/삭제 확인) ─────────
+        st.session_state.setdefault("confirm_tf_id", None)
+        st.session_state.setdefault("confirm_tf_open", False)
         teamfee_items = sb_list_teamfee(ym_key) if sb else []
         if teamfee_items:
             st.markdown("##### 팀비 사용 내역")
@@ -1271,7 +1307,9 @@ with tab5:
                 del_clicked  = c5.button("삭제", key=f"tf_del_{row['id']}_{ym_key}")
 
                 if del_clicked and sb:
-                    sb_delete_teamfee(row["id"]); st.rerun()
+                    st.session_state.confirm_tf_id = row["id"]
+                    st.session_state.confirm_tf_open = True
+                    st.rerun()
 
                 if edit_clicked:
                     e1, e2, e3, e4, e5 = st.columns([1,1,2,1,1])
@@ -1288,6 +1326,23 @@ with tab5:
                             st.success("저장되었습니다."); st.rerun()
                         except ValueError:
                             st.error("금액을 숫자로 입력하세요.")
+
+            # 삭제 확인 모달 대체
+            if st.session_state.get("confirm_tf_open", False) and st.session_state.get("confirm_tf_id") is not None:
+                with st.container(border=True):
+                    st.error("정말 삭제하시겠습니까? (되돌릴 수 없음)")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ 삭제 확정", key="tf_confirm_yes"):
+                            sb_delete_teamfee(st.session_state.confirm_tf_id)
+                            st.session_state.confirm_tf_id = None
+                            st.session_state.confirm_tf_open = False
+                            st.success("삭제되었습니다."); st.rerun()
+                    with c2:
+                        if st.button("❌ 취소", key="tf_confirm_no"):
+                            st.session_state.confirm_tf_id = None
+                            st.session_state.confirm_tf_open = False
+                            st.rerun()
         else:
             st.info("등록된 팀비 사용 항목이 없습니다.")
 
@@ -1313,7 +1368,9 @@ with tab5:
                 except ValueError:
                     st.error("금액을 숫자로 입력하세요.")
 
-        # ───────── 이체 내역 (표 + 수정/삭제) ─────────
+        # ───────── 이체 내역 (표 + 수정/삭제 확인) ─────────
+        st.session_state.setdefault("confirm_tr_id", None)
+        st.session_state.setdefault("confirm_tr_open", False)
         transfers = sb_list_transfer(ym_key) if sb else []
         if transfers:
             st.markdown("##### 팀원 간 이체 내역")
@@ -1321,21 +1378,26 @@ with tab5:
                 c1, c2, c3, c4, c5, c6, c7 = st.columns([1,0.3,1,2,1,1,1])
                 c1.write(row["from"]); c2.write("→"); c3.write(row["to"])
                 c4.write(row.get("memo","")); c5.write(f"{row['amount']}만원")
-                edit_clicked = c6.button("수정", key=f"tr_edit_{row['id']}_{ym_key}")
+                edit_clicked = c6.button("수정", key=f"tr_edit_{row['id']}_{ym_key"])
                 del_clicked  = c7.button("삭제", key=f"tr_del_{row['id']}_{ym_key}")
 
                 if del_clicked and sb:
-                    sb_delete_transfer(row["id"]); st.rerun()
+                    st.session_state.confirm_tr_id = row["id"]
+                    st.session_state.confirm_tr_open = True
+                    st.rerun()
 
                 if edit_clicked:
                     e1, e2, e3, e4, e5, e6 = st.columns([1,1,1,2,1,1])
                     new_from = e1.selectbox("보낸 사람", members_all,
                                             index=(members_all.index(row["from"]) if row["from"] in members_all else 0),
                                             key=f"tr_edit_from_{row['id']}_{ym_key}")
-                    new_to   = e2.selectbox("받는 사람", [m for m in members_all if m != new_from],
-                                            index=(0 if row["to"]==new_from else
-                                                   ([m for m in members_all if m != new_from].index(row["to"]) if row["to"] in [m for m in members_all if m != new_from] else 0)),
-                                            key=f"tr_edit_to_{row['id']}_{ym_key}")
+                    # 받는 사람 목록은 보낸 사람과 달라야 하므로 동적으로
+                    recv_candidates = [m for m in members_all if m != new_from]
+                    if row["to"] in recv_candidates:
+                        to_idx = recv_candidates.index(row["to"])
+                    else:
+                        to_idx = 0
+                    new_to   = e2.selectbox("받는 사람", recv_candidates, index=to_idx, key=f"tr_edit_to_{row['id']}_{ym_key}")
                     new_amt  = e3.text_input("금액(만원)", value=str(row["amount"]), key=f"tr_edit_amt_{row['id']}_{ym_key}")
                     new_memo = e4.text_input("메모", value=row.get("memo",""), key=f"tr_edit_memo_{row['id']}_{ym_key}")
                     save_btn = e5.button("저장", key=f"tr_save_{row['id']}_{ym_key}")
@@ -1346,6 +1408,23 @@ with tab5:
                             st.success("저장되었습니다."); st.rerun()
                         except ValueError:
                             st.error("금액을 숫자로 입력하세요.")
+
+            # 삭제 확인
+            if st.session_state.get("confirm_tr_open", False) and st.session_state.get("confirm_tr_id") is not None:
+                with st.container(border=True):
+                    st.error("정말 삭제하시겠습니까? (되돌릴 수 없음)")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ 삭제 확정", key="tr_confirm_yes"):
+                            sb_delete_transfer(st.session_state.confirm_tr_id)
+                            st.session_state.confirm_tr_id = None
+                            st.session_state.confirm_tr_open = False
+                            st.success("삭제되었습니다."); st.rerun()
+                    with c2:
+                        if st.button("❌ 취소", key="tr_confirm_no"):
+                            st.session_state.confirm_tr_id = None
+                            st.session_state.confirm_tr_open = False
+                            st.rerun()
         else:
             st.info("등록된 이체 항목이 없습니다.")
 
@@ -1458,7 +1537,7 @@ with tab5:
             if recv_bs:
                 for _, row in net_df.iterrows():
                     person, bal = row["사람"], int(row["순액(만원)"])
-                    if person == recv_bs: 
+                    if person == recv_bs:
                         continue
                     if bal > 0:
                         orders.append({"From": recv_bs, "To": person, "금액(만원)": bal, "비고": "개인 정산"})
