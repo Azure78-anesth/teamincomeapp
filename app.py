@@ -1042,7 +1042,7 @@ with tab4:
 
 
 # ============================
-# Tab 5: 정산 (입력 + 정산) — 웨일 대응 버전
+# Tab 5: 정산 (입력 + 정산) — 실시간 반영 + 영구저장 + 웨일 보정
 # ============================
 with tab5:
     st.markdown("### 정산")
@@ -1052,7 +1052,6 @@ with tab5:
     # ─────────────────────────────
     st.markdown("""
     <style>
-    /* expander 헤더 줄간격 보정 */
     details > summary {
       line-height: 1.5 !important;
       white-space: normal !important;
@@ -1063,24 +1062,61 @@ with tab5:
       word-break: keep-all;
       overflow-wrap: anywhere;
     }
-    /* caret 아이콘 정렬 */
-    .streamlit-expanderHeader svg {
-      transform: translateY(1px);
-    }
-    /* 입력창 기본값 제거 */
-    input[type="number"]::-webkit-inner-spin-button, 
-    input[type="number"]::-webkit-outer-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
-    input[type="number"] {
-      -moz-appearance: textfield;
-    }
+    .streamlit-expanderHeader svg { transform: translateY(1px); }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
     </style>
     """, unsafe_allow_html=True)
 
     # ─────────────────────────────
-    # Helper Functions
+    # Helper: 간단 영구 저장(JSON)
+    # ─────────────────────────────
+    import json, os
+    from pathlib import Path
+
+    DATA_DIR = Path("data")
+    DATA_DIR.mkdir(exist_ok=True)
+    STORE_PATH = DATA_DIR / "settlement.json"
+
+    def _ensure(key: str, default):
+        if key not in st.session_state:
+            st.session_state[key] = default
+        return st.session_state[key]
+
+    def load_store():
+        if STORE_PATH.exists():
+            try:
+                with open(STORE_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                st.session_state["settle5_settings"] = data.get("settings", {"defaults": {"sungmo_fixed": 650}})
+                st.session_state["settle5_monthly"]  = data.get("monthly", {})
+            except Exception:
+                # 손상되었을 때 기본값으로
+                st.session_state["settle5_settings"] = {"defaults": {"sungmo_fixed": 650}}
+                st.session_state["settle5_monthly"]  = {}
+        else:
+            st.session_state["settle5_settings"] = {"defaults": {"sungmo_fixed": 650}}
+            st.session_state["settle5_monthly"]  = {}
+
+    def save_store():
+        try:
+            payload = {
+                "settings": st.session_state.get("settle5_settings", {"defaults": {"sungmo_fixed": 650}}),
+                "monthly":  st.session_state.get("settle5_monthly", {}),
+            }
+            with open(STORE_PATH, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            st.warning(f"저장 중 오류: {e}")
+
+    # 앱 최초 1회 로드
+    if "settle5_loaded" not in st.session_state:
+        load_store()
+        st.session_state["settle5_loaded"] = True
+
+    # ─────────────────────────────
+    # 기타 Helpers
     # ─────────────────────────────
     def _name_from(_id: str, coll: list[dict]) -> str:
         for x in coll:
@@ -1090,11 +1126,6 @@ with tab5:
 
     def _member_names() -> list[str]:
         return [x.get("name") for x in st.session_state.team_members if x.get("name")]
-
-    def _ensure(key: str, default):
-        if key not in st.session_state:
-            st.session_state[key] = default
-        return st.session_state[key]
 
     def _group_by_member(df_in: pd.DataFrame) -> pd.DataFrame:
         if df_in.empty:
@@ -1142,19 +1173,21 @@ with tab5:
     ym_key = f"{year:04d}-{month:02d}"
 
     # ─────────────────────────────
-    # 상태 저장
+    # 상태 저장 (월별)
     # ─────────────────────────────
     settings = _ensure("settle5_settings", {"defaults": {"sungmo_fixed": 650}})
-    monthly = _ensure("settle5_monthly", {})
+    monthly  = _ensure("settle5_monthly", {})
     if ym_key not in monthly:
         monthly[ym_key] = {"teamfee_items": [], "transfers": []}
+        save_store()  # 새 달 생성 즉시 저장
     if ym_key not in settings:
         settings[ym_key] = {
-            "sungmo_fixed": 650,
+            "sungmo_fixed": settings["defaults"].get("sungmo_fixed", 650),
             "receiver_busansoom": members_all[0] if members_all else "",
-            "receiver_amiyou": members_all[0] if members_all else "",
-            "receiver_jinyong": "강현석"
+            "receiver_amiyou":    members_all[0] if members_all else "",
+            "receiver_jinyong":   "강현석",
         }
+        save_store()
 
     # ─────────────────────────────
     # 탭: 입력 / 정산
@@ -1171,24 +1204,38 @@ with tab5:
         with st.expander("기본 설정", expanded=True):
             colA, colB, colC = st.columns(3)
             with colA:
-                settings[ym_key]["sungmo_fixed"] = st.number_input(
-                    "성모 고정액(만원)", min_value=0, step=10, value=settings[ym_key].get("sungmo_fixed", 650),
+                # 정수 number_input (실시간 저장)
+                new_fixed = st.number_input(
+                    "성모 고정액(만원)", min_value=0, step=10,
+                    value=int(settings[ym_key].get("sungmo_fixed", 650)),
                     format="%d", key=f"s5_sungmo_fixed_{ym_key}"
                 )
+                if new_fixed != settings[ym_key].get("sungmo_fixed"):
+                    settings[ym_key]["sungmo_fixed"] = int(new_fixed)
+                    save_store()
+                    st.rerun()
             with colB:
-                cur_bs = settings[ym_key].get("receiver_busansoom", members_all[0])
-                settings[ym_key]["receiver_busansoom"] = st.selectbox(
+                cur_bs = settings[ym_key].get("receiver_busansoom", members_all[0] if members_all else "")
+                recv_bs_val = st.selectbox(
                     "부산숨 수령자", members_all,
                     index=(members_all.index(cur_bs) if cur_bs in members_all else 0),
                     key=f"s5_recv_bs_{ym_key}"
                 )
+                if recv_bs_val != cur_bs:
+                    settings[ym_key]["receiver_busansoom"] = recv_bs_val
+                    save_store()
+                    st.rerun()
             with colC:
-                cur_am = settings[ym_key].get("receiver_amiyou", members_all[0])
-                settings[ym_key]["receiver_amiyou"] = st.selectbox(
+                cur_am = settings[ym_key].get("receiver_amiyou", members_all[0] if members_all else "")
+                recv_am_val = st.selectbox(
                     "아미유 수령자", members_all,
                     index=(members_all.index(cur_am) if cur_am in members_all else 0),
                     key=f"s5_recv_am_{ym_key}"
                 )
+                if recv_am_val != cur_am:
+                    settings[ym_key]["receiver_amiyou"] = recv_am_val
+                    save_store()
+                    st.rerun()
             st.caption("이진용외과 수령자: **강현석(고정)**")
 
         # ───────── 팀비 사용 입력 ─────────
@@ -1197,49 +1244,63 @@ with tab5:
             with col1:
                 who = st.selectbox("사용자", members_all, key=f"s5_tf_who_{ym_key}")
             with col2:
-                amt_str = st.text_input("금액(만원)", key=f"s5_tf_amt_{ym_key}")
+                amt_str = st.text_input("금액(만원)", value="", key=f"s5_tf_amt_{ym_key}")
             with col3:
-                memo = st.text_input("메모", key=f"s5_tf_memo_{ym_key}")
+                memo = st.text_input("메모", value="", key=f"s5_tf_memo_{ym_key}")
 
             if st.button("추가", type="primary", key=f"s5_btn_add_tf_{ym_key}"):
                 try:
                     amt = int(amt_str.strip())
                     monthly[ym_key]["teamfee_items"].append({"who": who, "amount": amt, "memo": memo})
+                    save_store()
                     st.success("팀비 사용 항목이 추가되었습니다.")
+                    st.rerun()
                 except ValueError:
                     st.error("금액을 숫자로 입력하세요.")
 
-        # ───────── 팀비 사용 내역 표 ─────────
+        # ───────── 팀비 사용 내역 (간단 표 + 수정/삭제) ─────────
         if monthly[ym_key]["teamfee_items"]:
             st.markdown("##### 팀비 사용 내역")
-            df_tf = pd.DataFrame(monthly[ym_key]["teamfee_items"])
-            for i, row in df_tf.iterrows():
+            for i, row in enumerate(list(monthly[ym_key]["teamfee_items"])):
                 c1, c2, c3, c4, c5 = st.columns([1, 1, 2, 1, 1])
                 c1.write(row["who"])
                 c2.write(f"{row['amount']}만원")
                 c3.write(row["memo"])
-                if c4.button("수정", key=f"tf_edit_{i}_{ym_key}"):
-                    st.session_state[f"edit_tf_{i}_{ym_key}"] = True
-                if c5.button("삭제", key=f"tf_del_{i}_{ym_key}"):
+                edit_clicked = c4.button("수정", key=f"tf_edit_{i}_{ym_key}")
+                del_clicked  = c5.button("삭제", key=f"tf_del_{i}_{ym_key}")
+
+                if del_clicked:
                     del monthly[ym_key]["teamfee_items"][i]
+                    save_store()
                     st.rerun()
 
+                if edit_clicked:
+                    st.session_state[f"edit_tf_{i}_{ym_key}"] = True
+
                 if st.session_state.get(f"edit_tf_{i}_{ym_key}", False):
-                    st.write("---")
-                    e1, e2, e3 = st.columns([1, 1, 2])
-                    new_who = e1.selectbox("사용자", members_all, index=(members_all.index(row["who"]) if row["who"] in members_all else 0))
-                    new_amt = e2.text_input("금액(만원)", value=str(row["amount"]))
-                    new_memo = e3.text_input("메모", value=row["memo"])
-                    if st.button("저장", key=f"tf_save_{i}_{ym_key}"):
+                    e1, e2, e3, e4, e5 = st.columns([1, 1, 2, 1, 1])
+                    new_who  = e1.selectbox("사용자", members_all,
+                                            index=(members_all.index(row["who"]) if row["who"] in members_all else 0),
+                                            key=f"tf_edit_who_{i}_{ym_key}")
+                    new_amt  = e2.text_input("금액(만원)", value=str(row["amount"]), key=f"tf_edit_amt_{i}_{ym_key}")
+                    new_memo = e3.text_input("메모", value=row["memo"], key=f"tf_edit_memo_{i}_{ym_key}")
+                    save_btn = e4.button("저장", key=f"tf_save_{i}_{ym_key}")
+                    cancel   = e5.button("취소", key=f"tf_cancel_{i}_{ym_key}")
+
+                    if save_btn:
                         try:
                             monthly[ym_key]["teamfee_items"][i] = {
                                 "who": new_who, "amount": int(new_amt.strip()), "memo": new_memo
                             }
                             st.session_state[f"edit_tf_{i}_{ym_key}"] = False
+                            save_store()
                             st.success("저장되었습니다.")
                             st.rerun()
                         except ValueError:
                             st.error("금액을 숫자로 입력하세요.")
+                    if cancel:
+                        st.session_state[f"edit_tf_{i}_{ym_key}"] = False
+                        st.rerun()
         else:
             st.info("등록된 팀비 사용 항목이 없습니다.")
 
@@ -1251,31 +1312,178 @@ with tab5:
             with col2:
                 t = st.selectbox("받는 사람", [m for m in members_all if m != f], key=f"s5_tr_to_{ym_key}")
             with col3:
-                amt_str = st.text_input("금액(만원)", key=f"s5_tr_amt_{ym_key}")
+                amt_str = st.text_input("금액(만원)", value="", key=f"s5_tr_amt_{ym_key}")
             with col4:
-                memo = st.text_input("메모", key=f"s5_tr_memo_{ym_key}")
+                memo = st.text_input("메모", value="", key=f"s5_tr_memo_{ym_key}")
 
             if st.button("추가", type="primary", key=f"s5_btn_add_tr_{ym_key}"):
                 try:
                     amt = int(amt_str.strip())
                     monthly[ym_key]["transfers"].append({"from": f, "to": t, "amount": amt, "memo": memo})
+                    save_store()
                     st.success("이체 항목이 추가되었습니다.")
+                    st.rerun()
                 except ValueError:
                     st.error("금액을 숫자로 입력하세요.")
 
-        # ───────── 이체 내역 표 ─────────
+        # ───────── 이체 내역 (간단 표 + 삭제/수정) ─────────
         if monthly[ym_key]["transfers"]:
             st.markdown("##### 팀원 간 이체 내역")
-            df_tr = pd.DataFrame(monthly[ym_key]["transfers"])
-            for i, row in df_tr.iterrows():
-                c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 2, 1, 1])
+            for i, row in enumerate(list(monthly[ym_key]["transfers"])):
+                c1, c2, c3, c4, c5, c6 = st.columns([1, 0.3, 1, 2, 1, 1])
                 c1.write(row["from"])
                 c2.write("→")
                 c3.write(row["to"])
                 c4.write(row["memo"])
                 c5.write(f"{row['amount']}만원")
-                if c6.button("삭제", key=f"tr_del_{i}_{ym_key}"):
+                edit_clicked = False  # (원하면 이체도 수정 기능을 동일하게 켤 수 있음)
+                del_clicked  = c6.button("삭제", key=f"tr_del_{i}_{ym_key}")
+
+                if del_clicked:
                     del monthly[ym_key]["transfers"][i]
+                    save_store()
                     st.rerun()
         else:
             st.info("등록된 이체 항목이 없습니다.")
+
+    # ============================
+    # 정산 탭 (실시간 반영: 버튼 클릭마다 rerun되므로 항상 최신)
+    # ============================
+    with tab_result:
+        st.markdown("#### 정산 결과")
+
+        # 해당 월 데이터만 필터
+        dfM = df[(df["year"] == year) & (df["month"] == month)].copy()
+
+        def income_by_loc(loc_name: str) -> pd.DataFrame:
+            sub = dfM[dfM["location"] == loc_name]
+            return _group_by_member(sub)
+
+        # 명칭 추론(없을 시 기본)
+        bs_name  = next((n for n in dfM["location"].unique().tolist() if isinstance(n,str) and '숨' in n), "부산숨")
+        sm_name  = next((n for n in dfM["location"].unique().tolist() if isinstance(n,str) and '성모' in n), "성모안과")
+        amy_name = next((n for n in dfM["location"].unique().tolist() if isinstance(n,str) and '아미유' in n), "아미유외과")
+        lee_name = next((n for n in dfM["location"].unique().tolist() if isinstance(n,str) and '이진용' in n), "이진용외과")
+
+        income_bs  = income_by_loc(bs_name)
+        income_sm  = income_by_loc(sm_name)
+        income_amy = income_by_loc(amy_name)
+        income_lee = income_by_loc(lee_name)
+
+        recv_bs  = settings[ym_key].get("receiver_busansoom", None)
+        recv_am  = settings[ym_key].get("receiver_amiyou", None)
+        recv_lee = "강현석"
+
+        if not recv_bs:
+            st.warning("부산숨 수령자를 먼저 선택하세요.")
+            st.stop()
+
+        # 거래(트랜잭션)
+        tx = []
+
+        # 부산숨
+        if not income_bs.empty:
+            for _, r in income_bs.iterrows():
+                m, amt = r["member"], float(r["amount"])
+                if not m or amt <= 0: continue
+                if m == recv_bs: continue
+                tx.append({"from": recv_bs, "to": m, "amount": int(round(amt)), "reason": f"{bs_name}"})
+
+        # 성모
+        if not income_sm.empty:
+            for _, r in income_sm.iterrows():
+                m, amt = r["member"], float(r["amount"])
+                if not m or amt <= 0: continue
+                if m == recv_bs: continue
+                tx.append({"from": recv_bs, "to": m, "amount": int(round(amt)), "reason": f"{sm_name}"})
+
+        # 이진용(강현석 고정)
+        if not income_lee.empty:
+            for _, r in income_lee.iterrows():
+                m, amt = r["member"], float(r["amount"])
+                if not m or amt <= 0 or m == recv_lee: continue
+                tx.append({"from": recv_lee, "to": m, "amount": int(round(amt)), "reason": f"{lee_name}"})
+
+        # 아미유
+        if recv_am and not income_amy.empty:
+            for _, r in income_amy.iterrows():
+                m, amt = r["member"], float(r["amount"])
+                if not m or amt <= 0 or m == recv_am: continue
+                tx.append({"from": recv_am, "to": m, "amount": int(round(amt)), "reason": f"{amy_name}"})
+
+        # 일반 이체
+        for t in monthly[ym_key]["transfers"]:
+            frm, to, amt = t.get("from"), t.get("to"), int(t.get("amount", 0))
+            memo = t.get("memo", "이체")
+            if frm and to and amt > 0:
+                tx.append({"from": frm, "to": to, "amount": int(amt), "reason": f"이체:{memo}"})
+
+        # 팀비 산식(별도 표기)
+        sungmo_fixed = int(settings[ym_key].get("sungmo_fixed", 650))
+        sungmo_members_sum = int(round(float(income_sm["amount"].sum()))) if not income_sm.empty else 0
+        teamfee_used_sum = sum([int(x.get("amount", 0)) for x in monthly[ym_key]["teamfee_items"]])
+        teamfee_balance = int(sungmo_fixed - sungmo_members_sum - teamfee_used_sum)
+
+        # 팀비 사용: 항상 recv_bs → 사용자
+        for x in monthly[ym_key]["teamfee_items"]:
+            who = x.get("who")
+            amt = int(x.get("amount", 0))
+            if not who or amt <= 0: continue
+            tx.append({"from": recv_bs, "to": who, "amount": amt, "reason": f"팀비사용:{x.get('memo','')}"})
+
+        if not tx:
+            st.info("이번 달 정산에 반영할 거래가 없습니다.")
+            st.stop()
+
+        # 순액 계산
+        tx_df = pd.DataFrame(tx)
+        people = set([*tx_df["from"].unique().tolist(), *tx_df["to"].unique().tolist()])
+        balances = {p: 0 for p in people}
+        for _, r in tx_df.iterrows():
+            frm, to, amt = r["from"], r["to"], int(r["amount"])
+            balances[frm] = balances.get(frm, 0) - amt
+            balances[to]  = balances.get(to, 0) + amt
+
+        net_df = pd.DataFrame([{"사람": k, "순액(만원)": v} for k, v in balances.items()]).sort_values("순액(만원)", ascending=False).reset_index(drop=True)
+        st.markdown("##### 사람별 순액(개인 정산)")
+        st.dataframe(net_df, use_container_width=True, hide_index=True,
+                     column_config={"순액(만원)": st.column_config.NumberColumn(format="%.0f")})
+
+        # 최종 지급 지시서
+        st.markdown("##### 최종 지급 지시서 (개인 정산)")
+        orders = []
+        for _, row in net_df.iterrows():
+            person, bal = row["사람"], int(row["순액(만원)"])
+            if person == recv_bs:
+                continue
+            if bal > 0:
+                orders.append({"From": recv_bs, "To": person, "금액(만원)": bal, "비고": "개인 정산"})
+            elif bal < 0:
+                orders.append({"From": person, "To": recv_bs, "금액(만원)": abs(bal), "비고": "개인 정산"})
+        orders_df = pd.DataFrame(orders)
+        st.dataframe(orders_df, use_container_width=True, hide_index=True,
+                     column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")})
+
+        # 팀비 (별도 표기)
+        st.markdown("##### 팀비 (별도 표기)")
+        st.dataframe(pd.DataFrame([{
+            "From": "—", "To": "팀비",
+            "금액(만원)": teamfee_balance,
+            "비고": f"{sm_name}({int(sungmo_fixed)} - {int(sungmo_members_sum)} - {int(teamfee_used_sum)})"
+        }]), use_container_width=True, hide_index=True,
+        column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")})
+
+        # 참고: 위치별 팀원 실수입(해당월)
+        with st.expander("참고: 위치별 팀원 실수입(해당월)", expanded=False):
+            def _show_income(title, data):
+                st.markdown(f"**{title}**")
+                if data.empty:
+                    st.write("- (데이터 없음)")
+                else:
+                    view = data.rename(columns={"member": "팀원", "amount": "금액(만원)"}).sort_values("금액(만원)", ascending=False)
+                    st.dataframe(view, use_container_width=True, hide_index=True,
+                                 column_config={"금액(만원)": st.column_config.NumberColumn(format="%.0f")})
+            _show_income(bs_name,  income_bs)
+            _show_income(sm_name,  income_sm)
+            _show_income(amy_name, income_amy)
+            _show_income(lee_name, income_lee)
