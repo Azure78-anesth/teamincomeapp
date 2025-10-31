@@ -1041,18 +1041,12 @@ with tab4:
 
 
 # ============================
-# Tab 5: 정산 (최종본)
-# - 최종 허브: 부산숨 수령자(recv_bs)
-# - 성모 고정액: 월별 설정값(sungmo_fixed) 사용
-# - 외부(성모 고정) 유입: 순액 계산에서 제외 (원장에만 기록)
-# - 모든 지점 분배: 수령자 → 팀원 (자기지급 완전 차단)
-# - 팀비 잔액: 별도 표기(개인 순액에 미포함)
-# - 강현석(성모 수령자) 표시값 = 실제 순액 - 팀비잔액 (예: 575-320=255)
+# Tab 5: 정산 (최종본 / 보험·비보험 규칙 포함)
 # ============================
 with tab5:
     st.markdown("### 정산")
 
-    # ───────── 렌더링 보정 ─────────
+    # ───────── 렌더링 보정 (웨일 대응) ─────────
     st.markdown("""
     <style>
     details > summary { line-height:1.5!important;white-space:normal!important;}
@@ -1087,7 +1081,7 @@ with tab5:
             return pd.DataFrame(columns=["member","amount"])
         return df.groupby("member", as_index=False)["amount"].sum()
 
-    def _norm_name(x: str) -> str:
+    def _norm_text(x: str) -> str:
         s = unicodedata.normalize("NFKC", str(x or ""))
         # 제로폭(Cf) 제거 + 모든 공백 제거
         s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
@@ -1095,7 +1089,15 @@ with tab5:
         return s
 
     def _same_person(a, b) -> bool:
-        return _norm_name(a) == _norm_name(b)
+        return _norm_text(a) == _norm_text(b)
+
+    def _is_insurance_category(cat) -> bool:
+        """
+        '보험'만 포함하고 '비보험'이 들어간 건 제외.
+        DB 카테고리 명이 달라도 이 규칙이면 자동 필터됨.
+        """
+        s = _norm_text(cat).lower()
+        return ("보험" in s) and ("비보험" not in s)
 
     def sb_get_month(ym_key):
         try:
@@ -1147,7 +1149,7 @@ with tab5:
     members_all = _members()
 
     # ───────── 연/월 선택 ─────────
-    cur_year = NOW_KST.year  # 프로젝트 전역에서 NOW_KST 제공됨
+    cur_year = NOW_KST.year
     years = sorted(df["year"].unique().tolist())
     year = st.selectbox("정산 연도", years, index=years.index(cur_year) if cur_year in years else 0, key="settle_year")
     months = sorted(df[df["year"]==year]["month"].unique().tolist())
@@ -1196,7 +1198,6 @@ with tab5:
                 else:
                     st.error("금액은 숫자로 입력해주세요.")
 
-        # 팀비 내역
         st.markdown("##### 팀비 사용 내역")
         tf = sb_list("settlement_teamfee", ym_key)
         if not tf:
@@ -1214,7 +1215,7 @@ with tab5:
                 if c5.button("삭제", key=f"tf_del_{r['id']}"):
                     sb_delete("settlement_teamfee", r["id"]); st.rerun()
 
-        # 팀원 간 이체 입력/내역
+        # 팀원 간 이체 입력
         with st.expander("팀원 간 이체 입력", expanded=True):
             c1,c2,c3,c4 = st.columns([1,1,1,2])
             f = c1.selectbox("보낸 사람", members_all, key="transfer_from")
@@ -1250,20 +1251,35 @@ with tab5:
                 return pd.DataFrame(columns=["member","amount"])
             return d.groupby("member", as_index=False)["amount"].sum()
 
-        # 위치명 매칭(필요시 조건 확장)
+        # 위치명(데이터 표기에 맞게 필요시 확장)
         bs_name  = next((x for x in dfM["location"].unique() if "숨"   in str(x)), "부산숨")
         sm_name  = next((x for x in dfM["location"].unique() if "성모" in str(x)), "성모안과")
         amy_name = next((x for x in dfM["location"].unique() if "아미유" in str(x)), "아미유외과")
         lee_name = next((x for x in dfM["location"].unique() if "이진용" in str(x)), "이진용외과")
 
-        ib, im, ia, il = locdf(bs_name), locdf(sm_name), locdf(amy_name), locdf(lee_name)
+        # 지점별 집계
+        ib = locdf(bs_name)
+        im = locdf(sm_name)
+        il = locdf(lee_name)
+
+        # ✅ 아미유: '보험'만 포함, '비보험' 포함된 건 제외
+        amy_rows = dfM[dfM["location"].astype(str).str.contains("아미유", na=False)].copy()
+        if not amy_rows.empty:
+            amy_rows = amy_rows[ amy_rows["category"].apply(_is_insurance_category) ].copy()
+            if not amy_rows.empty:
+                ia = amy_rows.groupby("member", as_index=False)["amount"].sum()
+            else:
+                ia = pd.DataFrame(columns=["member","amount"])
+        else:
+            ia = pd.DataFrame(columns=["member","amount"])
+
         tf = sb_list("settlement_teamfee", ym_key)
         tr = sb_list("settlement_transfer", ym_key)
 
         # ───────── 트랜잭션 원장 ─────────
         tx = []
 
-        # ① 성모 고정액(외부 유입) → 강현석 (순액 계산에서 제외, 원장만 기록)
+        # ① 성모 고정액(외부 유입) → 강현석 (순액 계산에서 제외, 원장에만 기록)
         if sungmo_fixed:
             tx.append({"from":"외부","to":recv_lee,"amount":int(sungmo_fixed),"reason":"성모 고정 수입"})
 
@@ -1288,7 +1304,7 @@ with tab5:
                 if m and a and not _same_person(m, recv_lee):
                     tx.append({"from":recv_lee,"to":m,"amount":a,"reason":lee_name})
 
-        # ⑤ 아미유: 수령자 → 팀원 (자기지급 제외)
+        # ⑤ 아미유(보험만 집계됨): 수령자 → 팀원 (자기지급 제외)
         if recv_am and not ia.empty:
             for _, r in ia.iterrows():
                 m, a = r["member"], int(r["amount"])
@@ -1330,7 +1346,7 @@ with tab5:
         # 실제 순액 표
         net = pd.DataFrame([{"사람": k, "순액(만원)": v} for k, v in bal.items()]).sort_values("순액(만원)", ascending=False)
 
-        # 표시용 보정: 성모 수령자(현재 강현석) 표기에서 팀비잔액 분리
+        # 표시용 보정: 성모 수령자(현재 강현석) 표기에서 팀비잔액 분리 (예: 575 - 320 = 255)
         net_display = net.copy()
         if (net_display["사람"] == recv_lee).any():
             net_display.loc[net_display["사람"] == recv_lee, "순액(만원)"] = \
@@ -1372,7 +1388,6 @@ with tab5:
             tf_df["amount"] = pd.to_numeric(tf_df["amount"], errors="coerce").fillna(0).astype(int)
             cols = ["who","amount","memo"]
             if "created_at" in tf_df.columns:
-                # 저장 포맷에 따라 tz 처리 조정 가능
                 try:
                     tf_df["일시"] = pd.to_datetime(tf_df["created_at"], errors="coerce")\
                                        .dt.tz_convert("Asia/Seoul")\
