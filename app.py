@@ -1042,7 +1042,7 @@ with tab4:
 
 
 # ============================
-# Tab 5: 정산 (부산숨 허브 / 성모650 강 실수령 분배 / 최신 안정)
+# Tab 5: 정산 (부산숨 허브 / 성모650 강 실수령 분배 / 최종판)
 # ============================
 with tab5:
     st.markdown("### 정산")
@@ -1059,7 +1059,6 @@ with tab5:
     from supabase import create_client
     import postgrest
     from datetime import datetime, timezone
-    import json, time
     import pandas as pd
 
     SUPA_URL  = st.secrets["SUPABASE_URL"]
@@ -1147,10 +1146,10 @@ with tab5:
         am = members_all[0] if members_all else ""
         sb_upsert_month(ym_key, 650, bs, am)
         mrow = sb_get_month(ym_key)
-    sungmo_fixed = int(mrow["sungmo_fixed"])
-    recv_bs = mrow["receiver_busansoom"]     # 최종 지급 허브
-    recv_am = mrow["receiver_amiyou"]
-    recv_lee = "강현석"                      # 이진용외과 수령자(고정) & 성모 650 실수령자
+    sungmo_fixed = int(mrow["sungmo_fixed"])                 # ← UI 저장값(기본 650) 사용
+    recv_bs = mrow["receiver_busansoom"]                     # 최종 지급 허브
+    recv_am = mrow["receiver_amiyou"]                        # 아미유 수령자
+    recv_lee = "강현석"                                      # 이진용 수령자(고정) & 성모 실수령자
 
     tab_in, tab_out = st.tabs(["입력", "정산"])
 
@@ -1261,7 +1260,7 @@ with tab5:
                 if m and m != recv_bs and a:
                     tx.append({"from": recv_bs, "to": m, "amount": a, "reason": bs_name})
 
-        # ③ 성모: 강현석 → 각 팀원(자기 자신 제외)  ← 핵심
+        # ③ 성모: 강현석 → 각 팀원(자기 자신 제외)
         if not im.empty:
             for _, r in im.iterrows():
                 m, a = r["member"], int(r["amount"])
@@ -1304,7 +1303,7 @@ with tab5:
             st.info("정산할 항목이 없습니다.")
             st.stop()
 
-        # ───────── 개인 순액 계산 (‘외부’ 제외) ─────────
+        # ───────── 개인 순액 계산 (‘외부’ 제외 / 어떤 수령자도 0처리하지 않음) ─────────
         tx_df = pd.DataFrame(tx)
         exclude_agents = {"외부"}
         people = (set(tx_df["from"]) | set(tx_df["to"])) - exclude_agents
@@ -1313,11 +1312,6 @@ with tab5:
             f, t, a = r["from"], r["to"], int(r["amount"])
             if f in people: bal[f] -= a
             if t in people: bal[t] += a
-
-        # 💡 지점 수령자(강현석, 아미유 수령자)는 자기 지점 분배 후 최종적으로 0으로 본다(최종 허브가 부산숨이기 때문)
-        for special in [recv_lee, recv_am]:
-            if special in bal:
-                bal[special] = 0
 
         net = pd.DataFrame([{"사람": k, "순액(만원)": v} for k, v in bal.items()]).sort_values("순액(만원)", ascending=False)
         st.dataframe(net, use_container_width=True, hide_index=True)
