@@ -1070,7 +1070,7 @@ with tab5:
     # ───────── 기본 유틸 ─────────
     def _name_from(_id, coll):
         for x in coll:
-            if x.get("id") == __id:
+            if x.get("id") == _id:
                 return x.get("name", "")
         return ""
 
