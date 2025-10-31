@@ -1366,3 +1366,6 @@ with tab5:
             st.caption(f"팀비 사용합계: {int(view['금액(만원)'].sum())}만원")
         else:
             st.caption("이번 달 팀비 사용 내역이 없습니다.")
+tx_df = pd.DataFrame(tx)
+st.write("▶ from별 합계:", tx_df.groupby("from")["amount"].sum().to_dict())
+st.write("▶ (from, reason)별 합계:", tx_df.groupby(["from","reason"])["amount"].sum().to_dict())
