@@ -1042,7 +1042,7 @@ with tab4:
 
 
 # ============================
-# Tab 5: 정산 (최신 안정 버전)
+# Tab 5: 정산 (성모풀 방식 · 최신 안정 버전)
 # ============================
 with tab5:
     st.markdown("### 정산")
@@ -1060,6 +1060,7 @@ with tab5:
     import postgrest
     from datetime import datetime, timezone
     import json, time
+    import pandas as pd
 
     SUPA_URL  = st.secrets["SUPABASE_URL"]
     SUPA_KEY  = st.secrets["SUPABASE_ANON_KEY"]  # ✅ 기존 키 사용
@@ -1069,7 +1070,7 @@ with tab5:
     # ───────── 기본 유틸 ─────────
     def _name_from(_id, coll):
         for x in coll:
-            if x.get("id") == _id:
+            if x.get("id") == __id:
                 return x.get("name", "")
         return ""
 
@@ -1148,7 +1149,7 @@ with tab5:
     sungmo_fixed = int(mrow["sungmo_fixed"])
     recv_bs = mrow["receiver_busansoom"]
     recv_am = mrow["receiver_amiyou"]
-    recv_lee = "강현석"
+    recv_lee = "강현석"   # 이진용외과 수령자(고정)
 
     tab_in, tab_out = st.tabs(["입력", "정산"])
 
@@ -1180,7 +1181,7 @@ with tab5:
                 else:
                     st.error("금액은 숫자로 입력해주세요.")
 
-        # 팀비 내역 보기
+        # 팀비 내역 보기(입력 탭)
         st.markdown("##### 팀비 사용 내역")
         tf = sb_list("settlement_teamfee", ym_key)
         if not tf:
@@ -1235,51 +1236,121 @@ with tab5:
         amy_name= next((x for x in dfM["location"].unique() if "아미유" in str(x)), "아미유외과")
         lee_name= next((x for x in dfM["location"].unique() if "이진용" in str(x)), "이진용외과")
 
-        ib,im,ia,il = locdf(bs_name),locdf(sm_name),locdf(amy_name),locdf(lee_name)
+        ib, im, ia, il = locdf(bs_name), locdf(sm_name), locdf(amy_name), locdf(lee_name)
         tf = sb_list("settlement_teamfee", ym_key)
         tr = sb_list("settlement_transfer", ym_key)
 
-        tx=[]
-        # 수령자별 처리
-        if recv_bs:
-            for _,r in ib.iterrows():
-                if r["member"]!=recv_bs: tx.append({"from":recv_bs,"to":r["member"],"amount":int(r["amount"]),"reason":bs_name})
-        if recv_bs:
-            for _,r in im.iterrows():
-                if r["member"]!=recv_bs: tx.append({"from":recv_bs,"to":r["member"],"amount":int(r["amount"]),"reason":sm_name})
-        for _,r in il.iterrows():
-            if r["member"]!=recv_lee: tx.append({"from":recv_lee,"to":r["member"],"amount":int(r["amount"]),"reason":lee_name})
-        if recv_am:
-            for _,r in ia.iterrows():
-                if r["member"]!=recv_am: tx.append({"from":recv_am,"to":r["member"],"amount":int(r["amount"]),"reason":amy_name})
+        # ───────── 트랜잭션 구성 (성모풀 방식) ─────────
+        tx = []
+
+        # 성모 고정액: '외부' -> '성모풀' (개인 수입으로 잡지 않음)
+        if sungmo_fixed:
+            tx.append({"from": "외부", "to": "성모풀", "amount": int(sungmo_fixed), "reason": "성모 고정 수입"})
+
+        # 부산숨 발생액: 부산숨 수령자 -> 각 팀원
+        if recv_bs and not ib.empty:
+            for _, r in ib.iterrows():
+                if r["member"] != recv_bs:
+                    tx.append({"from": recv_bs, "to": r["member"], "amount": int(r["amount"]), "reason": bs_name})
+
+        # 성모 발생액: 성모풀 -> 각 팀원 (강현석 개인 수입으로 잡지 않음)
+        if not im.empty:
+            for _, r in im.iterrows():
+                tx.append({"from": "성모풀", "to": r["member"], "amount": int(r["amount"]), "reason": sm_name})
+
+        # 이진용외과: 강현석 -> 각 팀원
+        if not il.empty:
+            for _, r in il.iterrows():
+                if r["member"] != recv_lee:
+                    tx.append({"from": recv_lee, "to": r["member"], "amount": int(r["amount"]), "reason": lee_name})
+
+        # 아미유: 아미유 수령자 -> 각 팀원
+        if recv_am and not ia.empty:
+            for _, r in ia.iterrows():
+                if r["member"] != recv_am:
+                    tx.append({"from": recv_am, "to": r["member"], "amount": int(r["amount"]), "reason": amy_name})
+
+        # 팀원 간 이체
         for r in tr:
-            tx.append({"from":r["from"],"to":r["to"],"amount":int(r["amount"]),"reason":f"이체:{r['memo']}"})
-        sm_sum=int(im["amount"].sum()) if not im.empty else 0
-        tf_sum=sum(int(x["amount"]) for x in tf)
-        teamfee_bal=sungmo_fixed-sm_sum-tf_sum
+            tx.append({"from": r["from"], "to": r["to"], "amount": int(r["amount"]), "reason": f"이체:{r['memo']}"})
+
+        # 팀비 지출: 성모풀 -> 사용자
         for x in tf:
-            tx.append({"from":recv_bs,"to":x["who"],"amount":int(x["amount"]),"reason":f"팀비:{x['memo']}"})
+            tx.append({"from": "성모풀", "to": x["who"], "amount": int(x["amount"]), "reason": f"팀비:{x['memo']}"})
+
+        # ───────── 합계/잔액 계산 ─────────
+        sm_sum = int(im["amount"].sum()) if not im.empty else 0     # 성모안과 실제 발생액 합
+        tf_sum = sum(int(x["amount"]) for x in tf)                  # 팀비 사용 합
+        teamfee_bal = int(sungmo_fixed) - sm_sum - tf_sum           # 팀비 잔액(음수 가능)
+
         if not tx:
-            st.info("정산할 항목이 없습니다."); st.stop()
+            st.info("정산할 항목이 없습니다.")
+            st.stop()
 
-        # 개인별 정산 결과
-        tx_df=pd.DataFrame(tx)
-        people=set(tx_df["from"])|set(tx_df["to"])
-        bal={p:0 for p in people}
-        for _,r in tx_df.iterrows():
-            bal[r["from"]]-=r["amount"]; bal[r["to"]]+=r["amount"]
+        # ───────── 개인 순액 계산(성모풀/외부 제외) ─────────
+        tx_df = pd.DataFrame(tx)
+        exclude_agents = {"성모풀", "외부"}                           # 개인 정산에서 제외
+        people = (set(tx_df["from"]) | set(tx_df["to"])) - exclude_agents
+        bal = {p: 0 for p in people}
 
-        net=pd.DataFrame([{"사람":k,"순액(만원)":v} for k,v in bal.items()]).sort_values("순액(만원)",ascending=False)
-        st.dataframe(net,use_container_width=True,hide_index=True)
+        for _, r in tx_df.iterrows():
+            f, t, amt = r["from"], r["to"], int(r["amount"])
+            if f in people: bal[f] -= amt
+            if t in people: bal[t] += amt
 
+        net = pd.DataFrame([{"사람": k, "순액(만원)": v} for k, v in bal.items()]).sort_values("순액(만원)", ascending=False)
+        st.dataframe(net, use_container_width=True, hide_index=True)
+
+        # ───────── 최종 지급 지시서 (허브: 부산숨 수령자 중심, 필요시 recv_lee로 변경 가능) ─────────
         st.markdown("##### 최종 지급 지시서 (개인 정산)")
-        orders=[]
-        for _,r in net.iterrows():
-            p,b=r["사람"],r["순액(만원)"]
-            if p==recv_bs: continue
-            if b>0: orders.append({"From":recv_bs,"To":p,"금액(만원)":b})
-            elif b<0: orders.append({"From":p,"To":recv_bs,"금액(만원)":abs(b)})
-        st.dataframe(pd.DataFrame(orders),use_container_width=True,hide_index=True)
+        hub = recv_bs  # 필요 시 hub = recv_lee (강현석)로 변경
+        orders = []
+        for _, r in net.iterrows():
+            p, b = r["사람"], r["순액(만원)"]
+            if p == hub:
+                continue
+            if b > 0:
+                orders.append({"From": hub, "To": p, "금액(만원)": b})
+            elif b < 0:
+                orders.append({"From": p, "To": hub, "금액(만원)": abs(b)})
 
+        st.dataframe(pd.DataFrame(orders), use_container_width=True, hide_index=True)
+
+        # ───────── 팀비 섹션 (표시는 단순화: 650 / 성모지급 / 팀비사용) ─────────
         st.markdown(f"##### 팀비 (별도) — 잔액 {teamfee_bal}만원")
-        st.caption(f"{sm_name}({sungmo_fixed}-{sm_sum}-{tf_sum})")
+        st.caption(f"{sm_name}: 고정액 {sungmo_fixed} - 성모 지급합계 {sm_sum} - 팀비 사용합계 {tf_sum}")
+
+        # 성모안과 지급 요약 (개인별)
+        st.markdown("###### 성모안과 지급 요약")
+        if not im.empty:
+            sm_view = im.rename(columns={"member": "수취자", "amount": "금액(만원)"}).sort_values("금액(만원)", ascending=False)
+            st.dataframe(sm_view, use_container_width=True, hide_index=True)
+            st.caption(f"성모 지급합계: {int(sm_view['금액(만원)'].sum())}만원")
+        else:
+            st.caption("이번 달 성모안과 지급이 없습니다.")
+
+        # 팀비 사용 내역
+        st.markdown("###### 팀비 사용 내역")
+        if tf:
+            tf_df = pd.DataFrame(tf).copy()
+            tf_df["amount"] = pd.to_numeric(tf_df["amount"], errors="coerce").fillna(0).astype(int)
+
+            # created_at이 있으면 보기 좋게
+            cols = []
+            if "created_at" in tf_df.columns:
+                tf_df["일시"] = pd.to_datetime(tf_df["created_at"], errors="coerce")\
+                                   .dt.tz_convert("Asia/Seoul")\
+                                   .dt.strftime("%Y-%m-%d %H:%M")
+                cols.append("일시")
+            cols += ["who", "amount", "memo"]
+
+            view = tf_df[[c for c in cols if c in tf_df.columns]]\
+                .rename(columns={"who": "사용자", "amount": "금액(만원)", "memo": "메모"})
+
+            if "일시" in view.columns:
+                view = view.sort_values("일시")
+
+            st.dataframe(view, use_container_width=True, hide_index=True)
+            st.caption(f"팀비 사용합계: {int(view['금액(만원)'].sum())}만원")
+        else:
+            st.caption("이번 달 팀비 사용 내역이 없습니다.")
