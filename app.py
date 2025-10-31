@@ -1305,7 +1305,7 @@ with tab5:
 
         # ───────── 최종 지급 지시서 (허브: 강현석) ─────────
         st.markdown("##### 최종 지급 지시서 (개인 정산)")
-        hub = recv_lee  # 강현석 중심 정산
+        hub = recv_bs  # 부산숨 수령자가 전체 정산 허브
         orders = []
         for _, r in net.iterrows():
             p, b = r["사람"], r["순액(만원)"]
