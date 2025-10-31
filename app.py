@@ -1042,7 +1042,7 @@ with tab4:
 
 
 # ============================
-# Tab 5: 정산 (최종 지급 허브=부산숨 수령자 / 성모650 강현석 실수령 분배)
+# Tab 5: 정산 (부산숨 허브 / 성모650 강 실수령 분배 / 최신 안정)
 # ============================
 with tab5:
     st.markdown("### 정산")
@@ -1063,7 +1063,7 @@ with tab5:
     import pandas as pd
 
     SUPA_URL  = st.secrets["SUPABASE_URL"]
-    SUPA_KEY  = st.secrets["SUPABASE_ANON_KEY"]  # ✅ 기존 키 사용
+    SUPA_KEY  = st.secrets["SUPABASE_ANON_KEY"]
     sb = create_client(SUPA_URL, SUPA_KEY)
     sdb = sb.schema("public")
 
@@ -1075,12 +1075,12 @@ with tab5:
         return ""
 
     def _members():
-        return [x.get("name") for x in st.session_state.team_members if x.get("name")]
+        return [x.get("name") for x in (st.session_state.team_members or []) if x.get("name")]
 
     def _grp(df):
         if df.empty:
             return pd.DataFrame(columns=["member","amount"])
-        return df.groupby("member")["amount"].sum().reset_index()
+        return df.groupby("member", as_index=False)["amount"].sum()
 
     def sb_get_month(ym_key):
         try:
@@ -1120,9 +1120,10 @@ with tab5:
         "amount": pd.to_numeric(r.get("amount"), errors="coerce"),
         "member": _name_from(r.get("teamMemberId",""), st.session_state.team_members),
         "location": _name_from(r.get("locationId",""), st.session_state.locations),
-        "category": next((l.get("category") for l in st.session_state.locations if l.get("id")==r.get("locationId")), ""),
+        "category": next((l.get("category") for l in (st.session_state.locations or []) if l.get("id")==r.get("locationId")), ""),
         "memo": r.get("memo",""),
     } for r in rec])
+
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"]).copy()
     df["year"]  = df["date"].dt.year.astype(int)
@@ -1234,9 +1235,9 @@ with tab5:
             d = dfM[dfM["location"]==n]
             if d.empty:
                 return pd.DataFrame(columns=["member","amount"])
-            return d.groupby("member")["amount"].sum().reset_index()
+            return d.groupby("member", as_index=False)["amount"].sum()
 
-        # 위치명(데이터 표기에 맞춰 필요시 수정)
+        # 위치명(데이터 표기에 맞게 필요시 조건 확장)
         bs_name  = next((x for x in dfM["location"].unique() if "숨"   in str(x)), "부산숨")
         sm_name  = next((x for x in dfM["location"].unique() if "성모" in str(x)), "성모안과")
         amy_name = next((x for x in dfM["location"].unique() if "아미유" in str(x)), "아미유외과")
@@ -1249,7 +1250,7 @@ with tab5:
         # ───────── 트랜잭션 구성 ─────────
         tx = []
 
-        # ① 성모 고정액: 외부 → 강현석 (개인 수입으로 보지 않지만 정산 흐름상 유입)
+        # ① 성모 고정액: 외부 → 강현석 (정산 유입)
         if sungmo_fixed:
             tx.append({"from": "외부", "to": recv_lee, "amount": int(sungmo_fixed), "reason": "성모 고정 수입"})
 
@@ -1260,7 +1261,7 @@ with tab5:
                 if m and m != recv_bs and a:
                     tx.append({"from": recv_bs, "to": m, "amount": a, "reason": bs_name})
 
-        # ③ 성모: 강현석 → 각 팀원(자기 자신 제외)  ←★ 핵심
+        # ③ 성모: 강현석 → 각 팀원(자기 자신 제외)  ← 핵심
         if not im.empty:
             for _, r in im.iterrows():
                 m, a = r["member"], int(r["amount"])
@@ -1297,7 +1298,7 @@ with tab5:
         # ───────── 팀비 잔액(표시용) ─────────
         sm_sum = int(im["amount"].sum()) if not im.empty else 0                 # 성모 지급합계 (강 포함)
         tf_sum = sum(int(x.get("amount", 0) or 0) for x in tf)                  # 팀비 사용합계
-        teamfee_bal = int(sungmo_fixed) - sm_sum - tf_sum                       # 공식: 650 - 성모(강 포함) - 팀비
+        teamfee_bal = int(sungmo_fixed) - sm_sum - tf_sum                       # 650 - 성모(강 포함) - 팀비
 
         if not tx:
             st.info("정산할 항목이 없습니다.")
@@ -1312,6 +1313,11 @@ with tab5:
             f, t, a = r["from"], r["to"], int(r["amount"])
             if f in people: bal[f] -= a
             if t in people: bal[t] += a
+
+        # 💡 지점 수령자(강현석, 아미유 수령자)는 자기 지점 분배 후 최종적으로 0으로 본다(최종 허브가 부산숨이기 때문)
+        for special in [recv_lee, recv_am]:
+            if special in bal:
+                bal[special] = 0
 
         net = pd.DataFrame([{"사람": k, "순액(만원)": v} for k, v in bal.items()]).sort_values("순액(만원)", ascending=False)
         st.dataframe(net, use_container_width=True, hide_index=True)
