@@ -1377,3 +1377,9 @@ with tab5:
             st.caption(f"팀비 사용합계: {int(view['금액(만원)'].sum())}만원")
         else:
             st.caption("이번 달 팀비 사용 내역이 없습니다.")
+
+with st.expander("🔎 [진단] 아미유 분배 확인", expanded=False):
+    if not ia.empty:
+        st.write("아미유 원천 집계:", ia.to_dict("records"))
+    st.write("tx 중 아미유 라인:",
+             pd.DataFrame([x for x in tx if x["reason"] == amy_name]))
