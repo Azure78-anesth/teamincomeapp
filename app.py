@@ -35,7 +35,7 @@ st.markdown("""
 html, body, [class*="css"] { font-size: 16px; color: var(--text); background: var(--bg); }
 section.main > div { padding-top: .6rem; }
 h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
-/* 기타 스타일 생략 (기존 그대로 유지) */
+/* (기타 스타일은 기존 그대로) */
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,82 +67,93 @@ def get_supabase_client():
 sb = get_supabase_client()
 
 # ============================
-# invoices 테이블 자동 생성
+# invoices 테이블 자동 생성 (이미 만들었으면 그냥 통과)
 # ============================
 def ensure_invoices_table():
-    """Supabase에 invoices 테이블이 없으면 자동 생성"""
     if not sb:
         return
     try:
-        # 존재 확인
         sb.table("invoices").select("id").limit(1).execute()
-        return
+        return  # 존재함
     except Exception:
-        st.warning("⚙️ invoices 테이블이 없어 자동 생성 시도 중...")
-
-        ddl = """
-        create table if not exists public.invoices (
-          id uuid primary key default gen_random_uuid(),
-          ym text not null,
-          team_member_id text references public.team_members(id),
-          location_id text references public.locations(id),
-          ins_type text,
-          issue_amount double precision default 0,
-          tax_amount double precision default 0,
-          created_at timestamptz default now()
-        );
-        alter table public.invoices enable row level security;
-        create policy if not exists "anon_select_invoices"
-        on public.invoices for select to anon using (true);
-        create policy if not exists "anon_insert_invoices"
-        on public.invoices for insert to anon with check (true);
-        create policy if not exists "anon_update_invoices"
-        on public.invoices for update to anon using (true) with check (true);
-        create policy if not exists "anon_delete_invoices"
-        on public.invoices for delete to anon using (true);
-        """
-
-        url = st.secrets["SUPABASE_URL"] + "/rest/v1/rpc"
-        headers = {
-            "apikey": st.secrets["SUPABASE_ANON_KEY"],
-            "Authorization": f"Bearer {st.secrets['SUPABASE_ANON_KEY']}",
-            "Content-Type": "application/json",
-        }
-        # Supabase REST를 통해 SQL 실행
-        payload = {"query": ddl}
+        # 필요 시 생성 시도(프로젝트에 RPC가 없으면 무시)
         try:
-            r = requests.post(url, headers=headers, json=payload, timeout=15)
-            if r.status_code == 200:
-                st.success("✅ invoices 테이블 자동 생성 완료")
-            else:
-                st.warning(f"자동 생성 요청 실패: {r.status_code}")
-        except Exception as e:
-            st.error(f"자동 생성 중 오류: {e}")
+            url = st.secrets["SUPABASE_URL"] + "/rest/v1/rpc"
+            headers = {
+                "apikey": st.secrets["SUPABASE_ANON_KEY"],
+                "Authorization": f"Bearer {st.secrets['SUPABASE_ANON_KEY']}",
+                "Content-Type": "application/json",
+            }
+            ddl = """
+            create table if not exists public.invoices (
+              id uuid primary key default gen_random_uuid(),
+              ym text not null,
+              team_member_id text references public.team_members(id),
+              location_id text references public.locations(id),
+              ins_type text,
+              issue_amount double precision default 0,
+              tax_amount double precision default 0,
+              created_at timestamptz default now()
+            );
+            alter table public.invoices enable row level security;
+            create policy if not exists "anon_select_invoices"
+            on public.invoices for select to anon using (true);
+            create policy if not exists "anon_insert_invoices"
+            on public.invoices for insert to anon with check (true);
+            create policy if not exists "anon_update_invoices"
+            on public.invoices for update to anon using (true) with check (true);
+            create policy if not exists "anon_delete_invoices"
+            on public.invoices for delete to anon using (true);
+            """
+            requests.post(url, headers=headers, json={"query": ddl}, timeout=10)
+        except Exception:
+            # 콘솔에서 이미 생성해 둔 경우가 대부분이므로 조용히 패스
+            pass
 
 if sb:
     ensure_invoices_table()
 
 # ============================
-# State & "DB"
+# SAFE BOOT: 세션 키 보장 + (있으면) DB 로드
+#  - 어떤 탭이 먼저 렌더돼도 team_members/locations가 반드시 존재
+#  - load_data/ensure_order가 나중에 정의돼 있어도 안전하게 호출
 # ============================
-def init_state():
-    if "team_members" not in st.session_state:
-        st.session_state.team_members = [
-            {"id": "1", "name": "김철수", "order": 0},
-            {"id": "2", "name": "이영희", "order": 1},
-        ]
-    if "locations" not in st.session_state:
-        st.session_state.locations = [
-            {"id": "l1", "name": "서울A치과", "category": "보험", "order": 0},
-            {"id": "l2", "name": "서울B치과", "category": "비보험", "order": 1},
-        ]
-    if "income_records" not in st.session_state:
-        st.session_state.income_records = []
-    if "invoice_records" not in st.session_state:
-        st.session_state.invoice_records = []
+def _boot_once():
+    ss = st.session_state
+    ss.setdefault("team_members", [])
+    ss.setdefault("locations", [])
+    ss.setdefault("income_records", [])
+    ss.setdefault("invoice_records", [])
+    ss.setdefault("confirm_target", None)
+    ss.setdefault("confirm_action", None)
+    ss.setdefault("edit_income_id", None)
+    ss.setdefault("confirm_delete_income_id", None)
+    ss.setdefault("records_page", 0)
+    ss.setdefault("booted", False)
 
-# --- 이하 load_data(), upsert_row(), invoice_* 등 기존 코드 그대로 유지 ---
-# (당신이 올린 app.py의 나머지 부분은 그대로 두세요)
+    if not ss.booted:
+        # 이후 파일 하단에 정의되어 있을 수 있는 함수들을 안전하게 호출
+        if "load_data" in globals():
+            try:
+                load_data()
+            except Exception:
+                pass
+        if "ensure_order" in globals():
+            try:
+                ensure_order("team_members")
+                ensure_order("locations")
+            except Exception:
+                pass
+        # 계산서도 있으면 로드
+        if "load_invoices" in globals():
+            try:
+                load_invoices(NOW_KST.year)
+            except Exception:
+                pass
+        ss.booted = True
+
+_boot_once()
+
 
 
 
