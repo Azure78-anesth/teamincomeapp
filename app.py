@@ -513,37 +513,7 @@ with tab1:
 
 
 
-
-
-
 # ============================
-# Tab 2: 통계 (요약 카드 + 상세)
-# ============================
-with tab2:
-    def render_tab2():
-        import pandas as pd
-        from datetime import datetime, timezone, timedelta
-
-        # ── 내부 헬퍼 (fallback)
-        try:
-            _ = callable(metric_cards)
-        except NameError:
-            def metric_cards(items: list[tuple[str, str]]):
-                cols = st.columns(len(items))
-                for c, (label, val) in zip(cols, items):
-                    c.metric(label, val)
-
-        # 시간은 내부 계산만, 화면 출력/로그 X
-        try:
-            NOW_KST
-        except NameError:
-            NOW_KST = datetime.now(timezone(timedelta(hours=9)))
-
-        st.markdown("### 통계")
-
-        # ── name 매핑 유틸
-        def _name_from(_id: str, coll: list[dict]) -> str:
-            for x in (coll or []):# ============================
 # Tab 2: 통계 (수입 + 계산서)
 # ============================
 with tab2:
