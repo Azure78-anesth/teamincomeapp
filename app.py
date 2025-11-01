@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import List, Dict, Any
+from typing import Dict, Any, List
 import requests
 
 # ─────────────────────────────────────────
@@ -11,7 +11,7 @@ import requests
 NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
 
 # ============================
-# Page & Styles (모바일 세로보기 최적화)
+# Page & Styles (모바일 최적화)
 # ============================
 st.set_page_config(
     page_title="팀 수입 관리",
@@ -32,10 +32,10 @@ st.markdown("""
     --brand:#3b82f6; --brand-weak:#0b1a33;
   }
 }
-html, body, [class*="css"] { font-size: 16px; color: var(--text); background: var(--bg); }
-section.main > div { padding-top: .6rem; }
+html, body, [class*="css"]{ font-size:16px; color:var(--text); background:var(--bg); }
+section.main > div { padding-top:.6rem; }
 h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
-/* (기타 스타일은 기존 그대로) */
+/* (기존 스타일 나머지는 생략) */
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,16 +67,16 @@ def get_supabase_client():
 sb = get_supabase_client()
 
 # ============================
-# invoices 테이블 자동 생성 (이미 만들었으면 그냥 통과)
+# invoices 테이블 자동 생성(있으면 통과)
 # ============================
 def ensure_invoices_table():
     if not sb:
         return
     try:
         sb.table("invoices").select("id").limit(1).execute()
-        return  # 존재함
+        return
     except Exception:
-        # 필요 시 생성 시도(프로젝트에 RPC가 없으면 무시)
+        # 없는 경우만 생성 시도 (REST RPC로 SQL 실행)
         try:
             url = st.secrets["SUPABASE_URL"] + "/rest/v1/rpc"
             headers = {
@@ -97,13 +97,13 @@ def ensure_invoices_table():
             );
             alter table public.invoices enable row level security;
             create policy if not exists "anon_select_invoices"
-            on public.invoices for select to anon using (true);
+              on public.invoices for select to anon using (true);
             create policy if not exists "anon_insert_invoices"
-            on public.invoices for insert to anon with check (true);
+              on public.invoices for insert to anon with check (true);
             create policy if not exists "anon_update_invoices"
-            on public.invoices for update to anon using (true) with check (true);
+              on public.invoices for update to anon using (true) with check (true);
             create policy if not exists "anon_delete_invoices"
-            on public.invoices for delete to anon using (true);
+              on public.invoices for delete to anon using (true);
             """
             requests.post(url, headers=headers, json={"query": ddl}, timeout=10)
         except Exception:
@@ -114,89 +114,84 @@ if sb:
     ensure_invoices_table()
 
 # ============================
-# SAFE BOOT: 세션 키 보장 + (있으면) DB 로드
-#  - 어떤 탭이 먼저 렌더돼도 team_members/locations가 반드시 존재
-#  - load_data/ensure_order가 나중에 정의돼 있어도 안전하게 호출
+# SAFE BOOT: 세션 키 보장
 # ============================
-def _boot_once():
-    ss = st.session_state
-    ss.setdefault("team_members", [])
-    ss.setdefault("locations", [])
-    ss.setdefault("income_records", [])
-    ss.setdefault("invoice_records", [])
-    ss.setdefault("confirm_target", None)
-    ss.setdefault("confirm_action", None)
-    ss.setdefault("edit_income_id", None)
-    ss.setdefault("confirm_delete_income_id", None)
-    ss.setdefault("records_page", 0)
-    ss.setdefault("booted", False)
-
-    if not ss.booted:
-        # 이후 파일 하단에 정의되어 있을 수 있는 함수들을 안전하게 호출
-        if "load_data" in globals():
-            try:
-                load_data()
-            except Exception:
-                pass
-        if "ensure_order" in globals():
-            try:
-                ensure_order("team_members")
-                ensure_order("locations")
-            except Exception:
-                pass
-        # 계산서도 있으면 로드
-        if "load_invoices" in globals():
-            try:
-                load_invoices(NOW_KST.year)
-            except Exception:
-                pass
-        ss.booted = True
-
-_boot_once()
+ss = st.session_state
+ss.setdefault("team_members", [])
+ss.setdefault("locations", [])
+ss.setdefault("income_records", [])
+ss.setdefault("invoice_records", [])
+ss.setdefault("confirm_target", None)
+ss.setdefault("confirm_action", None)
+ss.setdefault("edit_income_id", None)
+ss.setdefault("confirm_delete_income_id", None)
+ss.setdefault("records_page", 0)
 
 # ============================
-# 최종 부팅 동기화(정의 순서로 인해 비어 있을 수 있는 세션을 재로딩)
-# - 이 블록은 load_data / ensure_order / reload_invoice_records 가
-#   모두 정의된 '뒤'에 위치해야 합니다.
+# PRIME FROM DB: 도입부에서 즉시 DB → 세션 채우기
+#  - 아래에 별도로 load_data()/load_invoices가 있어도 중복 문제 없음
+#  - 이미 값이 있으면 덮어쓰지 않고 유지
 # ============================
-def _final_boot_sync():
-    # 세션 기본키 보장
-    st.session_state.setdefault("team_members", [])
-    st.session_state.setdefault("locations", [])
-    st.session_state.setdefault("income_records", [])
-    st.session_state.setdefault("invoice_records", [])
-
-    # DB → 세션 로드 (Supabase 연결 시)
+def _prime_from_db():
+    if not sb:
+        return
+    # team_members
     try:
-        if 'load_data' in globals():
-            load_data()
+        if not ss["team_members"]:
+            rows = sb.table("team_members").select("*").order("order").execute().data or []
+            ss["team_members"] = [{"id": r["id"], "name": r["name"], "order": r.get("order", 0)} for r in rows]
+    except Exception:
+        pass
+    # locations
+    try:
+        if not ss["locations"]:
+            rows = sb.table("locations").select("*").order("order").execute().data or []
+            ss["locations"] = [{
+                "id": r["id"], "name": r["name"],
+                "category": r.get("category",""), "order": r.get("order",0)
+            } for r in rows]
+    except Exception:
+        pass
+    # incomes (선택)
+    try:
+        if not ss["income_records"]:
+            rows = sb.table("incomes").select("*").order("date").execute().data or []
+            ss["income_records"] = [{
+                "id": r["id"], "date": r["date"],
+                "teamMemberId": r.get("team_member_id"),
+                "locationId": r.get("location_id"),
+                "amount": float(r.get("amount", 0)),
+                "memo": r.get("memo",""),
+            } for r in rows]
+    except Exception:
+        pass
+    # invoices
+    try:
+        if not ss["invoice_records"]:
+            rows = sb.table("invoices").select("*").order("ym", desc=True).execute().data or []
+            ss["invoice_records"] = [{
+                "id": r.get("id"),
+                "ym": r.get("ym"),
+                "teamMemberId": r.get("team_member_id"),
+                "locationId":   r.get("location_id"),
+                "insType":      r.get("ins_type",""),
+                "issueAmount":  float(r.get("issue_amount", 0)),
+                "taxAmount":    float(r.get("tax_amount", 0)),
+                "createdAt":    r.get("created_at"),
+            } for r in rows]
     except Exception:
         pass
 
-    # 정렬 보정
-    try:
-        if 'ensure_order' in globals():
-            ensure_order("team_members")
-            ensure_order("locations")
-    except Exception:
-        pass
+_prime_from_db()
 
-    # 계산서도 연도 기준 재로드 (있으면)
-    try:
-        if 'reload_invoice_records' in globals():
-            reload_invoice_records(NOW_KST.year)
-        elif 'load_invoices' in globals():
-            load_invoices(NOW_KST.year)
-    except Exception:
-        pass
-
-# 기존에 상단에서 _boot_once()를 호출했더라도,
-# 아래 최종 동기화를 한 번 더 수행해 세션을 확실히 채웁니다.
-_final_boot_sync()
-
-
-
-
+# ============================
+# 헤더
+# ============================
+st.title("팀 수입 관리")
+if sb:
+    st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
+else:
+    st.info("🧪 Supabase 미설정 — 세션 메모리로 동작합니다. (Settings→Secrets에 SUPABASE 설정 시 팀 공유)")
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["입력", "통계", "설정", "기록 관리", "정산", "계산서"])
 
