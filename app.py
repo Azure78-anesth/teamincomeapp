@@ -37,7 +37,7 @@ section.main > div { padding-top: .6rem; }
 h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
 hr, .stDivider{ margin:.75rem 0; }
 
-/* ───── 네모 박스 탭 스타일 복원 ───── */
+/* ───── 네모 박스 탭 스타일 ───── */
 .stTabs [role="tablist"]{
   gap:.35rem; margin-bottom:.35rem; flex-wrap:wrap;
 }
@@ -57,7 +57,7 @@ hr, .stDivider{ margin:.75rem 0; }
   border-color: var(--brand) !important;
 }
 
-/* 입력 컨트롤 공통 */
+/* 입력 컨트롤 */
 button[kind], .stButton>button{
   min-height: 44px; border-radius: 12px; border:1px solid var(--border); font-weight:600;
 }
@@ -84,7 +84,6 @@ div[data-testid="stDataFrame"] tbody tr:nth-child(even){
 @media (max-width: 640px){
   body, [class*="css"]{ font-size: 15.5px; }
   .stTabs [role="tab"]{ font-size:.95rem; padding:.42rem .6rem; }
-  .mgrid { grid-template-columns:1fr 1fr; }
   div[data-testid="stDataFrame"] *{ font-size:.95rem; }
   div[data-testid="stDataFrame"]{ max-height: 440px; }
 }
@@ -112,32 +111,43 @@ def metric_cards(items: list[tuple[str, str]]):
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 # ============================
-# Supabase: 전역 1회 생성 → 모든 탭 공용
+# Supabase: 전역 1회 생성 → 모든 탭 공용 (원래 방식 유지)
 # ============================
-def get_supabase_client():
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_ANON_KEY"]
-    except Exception:
-        return None
+def _make_sb():
     try:
         from supabase import create_client
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
         return create_client(url, key)
     except Exception:
         return None
 
-# 전역/세션 보관
 if "sb" not in st.session_state:
-    st.session_state.sb = get_supabase_client()
-sb = st.session_state.sb  # ← 모든 탭에서 이걸 참조
+    st.session_state.sb = _make_sb()
 
-# 상태 초기 키만 세팅 (나머지는 기존 코드 로직 그대로)
-st.session_state.setdefault("invoice_records", [])
-st.session_state.setdefault("income_records", [])
-st.session_state.setdefault("team_members", [])
-st.session_state.setdefault("locations", [])
+sb = st.session_state.sb
+sdb = sb.schema("public") if sb else None  # (원래 코드 호환용, 필요 없으면 무시)
 
-# 연결 배지
+# ============================
+# 부트스트랩: DB → 세션 동기화 1회
+# ============================
+if "BOOTSTRAPPED" not in st.session_state:
+    try:
+        # 네 파일에 이미 있는 함수들만 조용히 호출
+        if 'load_data' in globals():
+            load_data()
+        if 'ensure_order' in globals():
+            ensure_order("team_members")
+            ensure_order("locations")
+        if 'reload_invoice_records' in globals():
+            # 계산서도 DB에서 읽어와 세션에 올려둠
+            reload_invoice_records(NOW_KST.year)
+    except Exception as e:
+        # 조용히 경고만
+        st.warning(f"초기 데이터 로딩 경고: {e}")
+    st.session_state.BOOTSTRAPPED = True
+
+# 연결 배지 (선택)
 st.title("팀 수입 관리")
 if sb:
     st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
