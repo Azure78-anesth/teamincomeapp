@@ -441,7 +441,7 @@ with tab2:
         st.stop()
 
     # ============================
-    # 하위 탭: 팀원별 / 업체종합 / 업체개별 / 계산서 통계(신규)
+    # 하위 탭: 팀원별 / 업체종합 / 업체개별 / 계산서 통계(수정됨)
     # ============================
     tab_mem, tab_loc_all, tab_loc_each, tab_invoice = st.tabs(['팀원별', '업체종합', '업체개별', '계산서 통계'])
 
@@ -570,7 +570,7 @@ with tab2:
             else:
                 st.info('선택한 월에 입력된 데이터가 없어 상세 보기를 표시할 수 없습니다.')
 
-    # ───────── 2) 업체종합 (요구: 랭킹 모드 순서 = 연간 → 월간) ─────────
+    # ───────── 2) 업체종합 ─────────
     with tab_loc_all:
         st.markdown('#### 업체종합 (보험/비보험 분리)')
         cat_sel = st.radio('분류 선택', ['보험','비보험'], horizontal=True, key='loc_all_cat')
@@ -616,21 +616,18 @@ with tab2:
                         column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')}
                     )
 
-    # ───────── 3) 업체개별 (요구: 단일 선택, 랭킹 모드 순서 = 월간 → 연간, 표로 표시, 우선순위 정렬) ─────────
+    # ───────── 3) 업체개별 ─────────
     with tab_loc_each:
         st.markdown('#### 업체개별 (선택 업체 × 팀원별 결과)')
 
-        # 1) 분류(보험/비보험)
         cat_sel_e = st.radio('분류 선택', ['보험', '비보험'], horizontal=True, key='loc_each_cat')
         dfC_e = dfY[dfY['category'] == cat_sel_e].copy()
         if dfC_e.empty:
             st.warning(f"{year}년 {cat_sel_e} 데이터가 없습니다.")
             st.stop()
 
-        # 2) 기준: 월간 → 연간
         mode_e = st.radio('기준 선택', ['월간 순위', '연간 순위'], horizontal=True, index=0, key='loc_each_mode')
 
-        # 3) 업체 단일 선택  ✅ 커스텀 정렬
         priority = ["부산숨", "성모안과", "아미유외과", "이진용외과"]
         base_order = [x.get('name') for x in st.session_state.locations if x.get('name')]
         present = set(dfC_e['location'].dropna().tolist())
@@ -641,11 +638,8 @@ with tab2:
             st.stop()
 
         sel_loc_e = st.selectbox('업체 선택', loc_opts_e, index=0, key='loc_each_loc')
-
-        # 선택된 업체 필터
         dfS_e = dfC_e[dfC_e['location'] == sel_loc_e].copy()
 
-        # 표 유틸: 합계 행 추가
         def _df_with_total(df_in: pd.DataFrame, amount_col: str, name_col: str = '팀원') -> pd.DataFrame:
             total = pd.DataFrame([{name_col: '총합', amount_col: df_in[amount_col].sum()}])
             out = pd.concat([df_in, total], ignore_index=True)
@@ -664,7 +658,6 @@ with tab2:
                 f"**조건:** {cat_sel_e} · {month_sel_e}월 기준"
             )
 
-            # 팀원별 월간 합계
             dfM_e = dfS_e[dfS_e['month'] == month_sel_e].copy()
             by_member_month_e = (
                 dfM_e.groupby('member', dropna=False)['amount'].sum().reset_index()
@@ -680,7 +673,6 @@ with tab2:
                 column_config={'월합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
 
-            # 아래에 참고: 연간 합계 표
             st.markdown('##### 참고: 팀원별 연간 합계')
             by_member_year_e = (
                 dfS_e.groupby('member', dropna=False)['amount'].sum().reset_index()
@@ -714,7 +706,7 @@ with tab2:
                 column_config={'연간합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
 
-    # ───────── 4) 계산서 통계 (신규) ─────────
+    # ───────── 4) 계산서 통계 (수정된 요구 반영) ─────────
     with tab_invoice:
         st.markdown('#### 계산서 통계')
 
@@ -751,20 +743,16 @@ with tab2:
             df_inv['location'] = df_inv['location_id'].map(l_map)
             df_inv['ratio']    = df_inv.apply(lambda r: (r['tax']/r['issue']*100) if r['issue'] else 0.0, axis=1)
 
-            # 개인/팀 전체
-            st.markdown('##### 개인/팀 전체 통계')
-            member_opts = ['팀 전체'] + sorted([x for x in df_inv['member'].dropna().unique().tolist()])
+            # ── 선택 UI
+            member_opts = ['팀 전체'] + sorted(df_inv['member'].dropna().unique().tolist())
             sel_member  = st.selectbox('팀원 선택', member_opts, key='invstat_member')
 
-            years_inv   = sorted(df_inv['year'].dropna().astype(int).unique().tolist())
-            default_y   = NOW_KST.year if NOW_KST.year in years_inv else (years_inv[-1] if years_inv else NOW_KST.year)
-            sel_year    = st.selectbox('연도 선택', years_inv if years_inv else [default_y],
-                                       index=(years_inv.index(default_y) if years_inv else 0),
-                                       key='invstat_year')
+            years_inv = sorted(set(df_inv['year'].dropna().astype(int).tolist()) | {NOW_KST.year})
+            default_y = NOW_KST.year
+            sel_year  = st.selectbox('연도 선택', years_inv, index=years_inv.index(default_y), key='invstat_year')
 
-            months_inv  = sorted(df_inv.loc[df_inv['year']==sel_year, 'month'].unique().tolist())
-            sel_mode    = st.radio('기간 선택', ['연간','월간'], horizontal=True, index=0, key='invstat_period')
-
+            months_inv = sorted(df_inv.loc[df_inv['year']==sel_year, 'month'].unique().tolist())
+            sel_mode   = st.radio('기간 선택', ['연간','월간'], horizontal=True, index=0, key='invstat_period')
             if sel_mode == '월간' and months_inv:
                 sel_month = st.selectbox('월 선택', months_inv, index=len(months_inv)-1, key='invstat_month')
                 df_per = df_inv[(df_inv['year']==sel_year) & (df_inv['month']==sel_month)].copy()
@@ -776,49 +764,76 @@ with tab2:
             if sel_member != '팀 전체':
                 df_per = df_per[df_per['member'] == sel_member]
 
+            # ── 상단 지표(총합)
             total_issue = float(df_per['issue'].sum())
             total_tax   = float(df_per['tax'].sum())
             ratio_all   = (total_tax/total_issue*100) if total_issue else 0.0
-
             c1, c2, c3 = st.columns(3)
             c1.metric(f'{titleP} 발행금액 총합(만원)', f'{total_issue:,.0f}')
             c2.metric(f'{titleP} 세준금 총합(만원)',   f'{total_tax:,.0f}')
             c3.metric('세준금 비율(%)',              f'{ratio_all:.2f}%')
 
-            st.divider()
+            # ── (팀 전체 선택 시) 팀원별 누적 표
+            if sel_member == '팀 전체':
+                st.markdown('##### 팀원별 누적 (선택 기간 기준)')
+                scope = df_inv[(df_inv['year']==sel_year)].copy() if sel_mode=='연간' else df_inv[(df_inv['year']==sel_year) & (df_inv['month']==sel_month)].copy()
+                by_member = (
+                    scope.groupby('member', as_index=False)
+                         .agg({'issue':'sum','tax':'sum'})
+                         .rename(columns={'member':'팀원','issue':'발행금액(만원)','tax':'세준금(만원)'})
+                )
+                by_member['세준금비율(%)'] = by_member.apply(
+                    lambda r: (r['세준금(만원)']/r['발행금액(만원)']*100) if r['발행금액(만원)'] else 0.0,
+                    axis=1
+                )
+                by_member = by_member.sort_values('발행금액(만원)', ascending=False).reset_index(drop=True)
 
-            # 업체별 랭킹: 발행금액 총합 기준 내림차순
-            st.markdown('##### 업체별 랭킹 (발행금액 기준)')
-            agg_mode = st.radio('조회 모드', ['연간','월간'], horizontal=True, index=0, key='invstat_aggmode')
+                if by_member.empty:
+                    st.info(f"{titleP} 팀원별 누적 데이터가 없습니다.")
+                else:
+                    st.dataframe(
+                        by_member[['팀원','발행금액(만원)','세준금(만원)','세준금비율(%)']],
+                        use_container_width=True,
+                        hide_index=True,
+                        key='invstat_by_member',
+                        column_config={
+                            '발행금액(만원)': st.column_config.NumberColumn(format='%.0f'),
+                            '세준금(만원)'  : st.column_config.NumberColumn(format='%.0f'),
+                            '세준금비율(%)' : st.column_config.NumberColumn(format='%.2f'),
+                        }
+                    )
 
-            if agg_mode == '월간' and months_inv:
-                msel   = st.selectbox('월 선택', months_inv, index=len(months_inv)-1, key='invstat_aggmonth')
-                df_sel = df_inv[(df_inv['year']==sel_year) & (df_inv['month']==msel)].copy()
-                titleR = f'{sel_year}년 {msel}월 업체별'
+            st.markdown('##### 업체별 계산서 목록')
+            # ── 업체별 목록 (팀 전체/개인 × 연간/월간 선택과 연동)
+            scope2 = df_inv[(df_inv['year']==sel_year)].copy() if sel_mode=='연간' else df_inv[(df_inv['year']==sel_year) & (df_inv['month']==sel_month)].copy()
+            if sel_member != '팀 전체':
+                scope2 = scope2[scope2['member'] == sel_member]
+
+            if scope2.empty:
+                st.info(f"{titleP} 조건에 맞는 계산서 데이터가 없습니다.")
             else:
-                df_sel = df_inv[df_inv['year']==sel_year].copy()
-                titleR = f'{sel_year}년 업체별'
+                by_loc = (
+                    scope2.groupby('location', as_index=False)
+                          .agg({'issue':'sum','tax':'sum'})
+                          .rename(columns={'location':'업체명','issue':'발행금액(만원)','tax':'세준금(만원)'})
+                )
+                by_loc['세준금비율(%)'] = by_loc.apply(
+                    lambda r: (r['세준금(만원)']/r['발행금액(만원)']*100) if r['발행금액(만원)'] else 0.0,
+                    axis=1
+                )
+                by_loc = by_loc.sort_values('발행금액(만원)', ascending=False).reset_index(drop=True)
 
-            grouped = df_sel.groupby('location', as_index=False).agg({'issue':'sum','tax':'sum'})
-            grouped['ratio'] = grouped.apply(lambda r: (r['tax']/r['issue']*100) if r['issue'] else 0.0, axis=1)
-            grouped = grouped.sort_values('issue', ascending=False).reset_index(drop=True)
-
-            st.markdown(f'**{titleR} 계산서 현황**')
-            st.dataframe(
-                grouped.rename(columns={
-                    'location':'업체명',
-                    'issue':'발행금액(만원)',
-                    'tax':'세준금(만원)',
-                    'ratio':'세준금비율(%)'
-                })[['업체명','발행금액(만원)','세준금(만원)','세준금비율(%)']],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    '발행금액(만원)': st.column_config.NumberColumn(format='%.0f'),
-                    '세준금(만원)':   st.column_config.NumberColumn(format='%.0f'),
-                    '세준금비율(%)':  st.column_config.NumberColumn(format='%.2f'),
-                }
-            )
+                st.dataframe(
+                    by_loc[['업체명','발행금액(만원)','세준금(만원)','세준금비율(%)']],
+                    use_container_width=True,
+                    hide_index=True,
+                    key='invstat_linked_by_loc',
+                    column_config={
+                        '발행금액(만원)': st.column_config.NumberColumn(format='%.0f'),
+                        '세준금(만원)'  : st.column_config.NumberColumn(format='%.0f'),
+                        '세준금비율(%)' : st.column_config.NumberColumn(format='%.2f'),
+                    }
+                )
 
 
 
