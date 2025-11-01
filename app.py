@@ -1401,3 +1401,119 @@ with tab5:
             st.caption(f"팀비 사용합계: {int(tf_df['amount'].sum())}만원")
         else:
             st.caption("이번 달 팀비 사용 내역이 없습니다.")
+
+
+with tab6:
+    st.subheader("계산서 입력 · 월별 관리")
+
+    # ▸ 달 선택(월 관리): YYYY-MM 문자열
+    month_pick = datetime.today().replace(day=1)
+    month_pick = st.date_input("달 선택", value=month_pick)
+    ym = f"{month_pick.year:04d}-{month_pick.month:02d}"
+
+    # ▸ 팀원 선택
+    member_names = [m["name"] for m in st.session_state.team_members]
+    member_map = {m["name"]: m["id"] for m in st.session_state.team_members}
+    member_name = st.selectbox("팀원", member_names) if member_names else None
+    member_id = member_map.get(member_name) if member_name else None
+
+    # ▸ 보험/비보험 구분 → 업체 필터
+    ins_type = st.radio("구분", ["보험","비보험"], horizontal=True, index=0)
+
+    def _match_ins_type(loc):
+        # locations.category 를 보험/비보험 구분으로 사용한다는 가정
+        return (loc.get("category","").strip() == ins_type)
+
+    loc_opts = [l for l in st.session_state.locations if _match_ins_type(l)]
+    if not loc_opts:
+        # category가 없다면 전체 제공 (fallback)
+        loc_opts = st.session_state.locations
+
+    loc_label = [f'{l.get("name","")} ({l.get("category","")})' for l in loc_opts]
+    loc_pick = st.selectbox("업체", loc_label) if loc_opts else None
+    loc_id = (loc_opts[loc_label.index(loc_pick)]["id"] if loc_pick else None) if loc_opts else None
+
+    # ▸ 금액 2개: 발행금액 / 세준금
+    issue_raw = st.text_input("계산서 발행금액(만원)", value="", placeholder="예: 120")
+    tax_raw   = st.text_input("세준금(만원)", value="", placeholder="예: 12")
+
+    def _num(v):
+        try: return float(str(v).replace(",","").strip())
+        except: return None
+
+    issue_amount = _num(issue_raw)
+    tax_amount   = _num(tax_raw)
+
+    memo_invoice = st.text_input("메모(선택)", value="", placeholder="비고를 적어주세요")
+
+    if st.button("계산서 등록", type="primary"):
+        if not (member_id and loc_id and ym and issue_amount is not None and tax_amount is not None and issue_amount >= 0 and tax_amount >= 0):
+            st.error("모든 필드를 올바르게 입력하세요.")
+        else:
+            iid = f"inv_{datetime.utcnow().timestamp()}"
+            payload = {
+                "id": iid,
+                "ym": ym,
+                "teamMemberId": member_id,
+                "locationId": loc_id,
+                "insType": ins_type,              # 보험/비보험
+                "issueAmount": float(issue_amount),
+                "taxAmount": float(tax_amount),   # 세준금
+                "memo": memo_invoice.strip(),
+            }
+            if sb:
+                try:
+                    sb.table("invoices").insert({
+                        "id": payload["id"],
+                        "ym": payload["ym"],
+                        "team_member_id": payload["teamMemberId"],
+                        "location_id": payload["locationId"],
+                        "ins_type": payload["insType"],
+                        "issue_amount": payload["issueAmount"],
+                        "tax_amount": payload["TaxAmount"] if False else payload["taxAmount"],  # 안전하게 소문자 키 사용
+                        "memo": payload.get("memo",""),
+                    }).execute()
+                except Exception:
+                    st.warning("Supabase 저장 실패(스키마 미확장/오프라인). 임시 메모리에만 보관합니다.")
+            upsert_row("invoices", payload)
+            st.success(f"{ym} 계산서가 저장되었습니다 ✅")
+
+    st.divider()
+    st.markdown("#### 월별 계산서 현황")
+
+    # 조회 월 선택
+    y_all = sorted({int(r["ym"].split("-")[0]) for r in st.session_state.invoice_records} | {month_pick.year})
+    m_all = list(range(1,13))
+    qy = st.selectbox("연도", options=y_all, index=y_all.index(month_pick.year))
+    qm = st.selectbox("월", options=m_all, index=month_pick.month-1)
+    qym = f"{qy:04d}-{qm:02d}"
+
+    rows = [r for r in st.session_state.invoice_records if r.get("ym") == qym]
+    df = pd.DataFrame([{
+        "id": r["id"],
+        "연월": r["ym"],
+        "팀원": next((m["name"] for m in st.session_state.team_members if m["id"] == r["teamMemberId"]), ""),
+        "업체": next((l["name"] for l in st.session_state.locations if l["id"] == r["locationId"]), ""),
+        "구분": r.get("insType",""),
+        "발행금액(만원)": r.get("issueAmount",0.0),
+        "세준금(만원)": r.get("taxAmount",0.0),
+        "메모": r.get("memo",""),
+    } for r in rows])
+
+    if not df.empty:
+        st.dataframe(
+            df[["연월","팀원","업체","구분","발행금액(만원)","세준금(만원)","메모"]],
+            use_container_width=True,
+            column_config={
+                "발행금액(만원)": st.column_config.NumberColumn(format="%.0f"),
+                "세준금(만원)": st.column_config.NumberColumn(format="%.0f"),
+            }
+        )
+        total_issue = float(df["발행금액(만원)"].sum())
+        total_tax   = float(df["세준금(만원)"].sum())
+        col_a, col_b = st.columns(2)
+        col_a.metric(f"{qym} 발행금액 합계(만원)", f"{total_issue:,.0f}")
+        col_b.metric(f"{qym} 세준금 합계(만원)", f"{total_tax:,.0f}")
+    else:
+        st.info(f"{qym}에 등록된 계산서가 없습니다.")
+
