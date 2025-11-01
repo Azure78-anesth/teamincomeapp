@@ -1734,4 +1734,4 @@ with tab6:
                     #     sb.table("invoices").delete().eq("id", rid).execute()
                     removed = before - len(st.session_state.invoice_records)
                     st.success(f"삭제 {removed}건 완료 🗑️")
-                    st.experimental_rerun()
+                    st.rerun()
