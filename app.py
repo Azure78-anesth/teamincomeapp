@@ -441,7 +441,7 @@ with tab2:
         st.stop()
 
     # ============================
-    # 하위 탭: 팀원별 / 업체종합 / 업체개별 / 계산서 통계(수정됨)
+    # 하위 탭: 팀원별 / 업체종합 / 업체개별 / 계산서 통계
     # ============================
     tab_mem, tab_loc_all, tab_loc_each, tab_invoice = st.tabs(['팀원별', '업체종합', '업체개별', '계산서 통계'])
 
@@ -706,7 +706,7 @@ with tab2:
                 column_config={'연간합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
 
-    # ───────── 4) 계산서 통계 (수정된 요구 반영) ─────────
+    # ───────── 4) 계산서 통계 (요구 반영)
     with tab_invoice:
         st.markdown('#### 계산서 통계')
 
@@ -720,9 +720,12 @@ with tab2:
                 'member_id': r.get('teamMemberId'),
                 'location_id': r.get('locationId'),
                 'ins_type': r.get('insType',''),
-                'issue': float(r.get('issueAmount',0) or 0.0),
-                'tax':   float(r.get('taxAmount',0) or 0.0),
+                'issue': pd.to_numeric(r.get('issueAmount',0), errors='coerce'),
+                'tax':   pd.to_numeric(r.get('taxAmount',0),   errors='coerce'),
             } for r in inv_records])
+
+            df_inv['issue'] = df_inv['issue'].fillna(0.0)
+            df_inv['tax']   = df_inv['tax'].fillna(0.0)
 
             # 연/월 분해
             def _split_ym(ym: str):
@@ -741,7 +744,6 @@ with tab2:
             l_map = {l['id']: l['name'] for l in st.session_state.get('locations', [])}
             df_inv['member']   = df_inv['member_id'].map(m_map)
             df_inv['location'] = df_inv['location_id'].map(l_map)
-            df_inv['ratio']    = df_inv.apply(lambda r: (r['tax']/r['issue']*100) if r['issue'] else 0.0, axis=1)
 
             # ── 선택 UI
             member_opts = ['팀 전체'] + sorted(df_inv['member'].dropna().unique().tolist())
@@ -776,7 +778,7 @@ with tab2:
             # ── (팀 전체 선택 시) 팀원별 누적 표
             if sel_member == '팀 전체':
                 st.markdown('##### 팀원별 누적 (선택 기간 기준)')
-                scope = df_inv[(df_inv['year']==sel_year)].copy() if sel_mode=='연간' else df_inv[(df_inv['year']==sel_year) & (df_inv['month']==sel_month)].copy()
+                scope = df_per.copy()
                 by_member = (
                     scope.groupby('member', as_index=False)
                          .agg({'issue':'sum','tax':'sum'})
@@ -803,12 +805,9 @@ with tab2:
                         }
                     )
 
+            # ── 업체별 계산서 목록 (팀 전체/개인 × 연간/월간 연동)
             st.markdown('##### 업체별 계산서 목록')
-            # ── 업체별 목록 (팀 전체/개인 × 연간/월간 선택과 연동)
-            scope2 = df_inv[(df_inv['year']==sel_year)].copy() if sel_mode=='연간' else df_inv[(df_inv['year']==sel_year) & (df_inv['month']==sel_month)].copy()
-            if sel_member != '팀 전체':
-                scope2 = scope2[scope2['member'] == sel_member]
-
+            scope2 = df_per.copy()
             if scope2.empty:
                 st.info(f"{titleP} 조건에 맞는 계산서 데이터가 없습니다.")
             else:
@@ -821,6 +820,7 @@ with tab2:
                     lambda r: (r['세준금(만원)']/r['발행금액(만원)']*100) if r['발행금액(만원)'] else 0.0,
                     axis=1
                 )
+                # 🔽 발행금액 기준 내림차순
                 by_loc = by_loc.sort_values('발행금액(만원)', ascending=False).reset_index(drop=True)
 
                 st.dataframe(
@@ -834,6 +834,7 @@ with tab2:
                         '세준금비율(%)' : st.column_config.NumberColumn(format='%.2f'),
                     }
                 )
+
 
 
 
