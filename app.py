@@ -388,7 +388,6 @@ with tab1:
 
 
 
-
 # ============================
 # Tab 2: 통계 (요약 카드 + 상세)
 # ============================
@@ -458,7 +457,6 @@ with tab2:
         )
 
         if member_select == '팀원 비교(전체)':
-            # 연간 합계 (팀원별)
             annual_by_member = dfY.groupby('member', dropna=False, as_index=False)['amount'].sum()
             annual_by_member.rename(columns={'member':'팀원', 'amount':'연간 합계(만원)'}, inplace=True)
             annual_by_member.sort_values('연간 합계(만원)', ascending=False, inplace=True, kind='mergesort')
@@ -473,7 +471,6 @@ with tab2:
                 column_config={'연간 합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
 
-            # 월 선택 (보험/비보험 분리)
             months_avail_all = sorted(dfY['month'].unique().tolist())
             if months_avail_all:
                 month_sel2 = st.selectbox('월 선택(보험/비보험 분리 보기)', months_avail_all, index=len(months_avail_all)-1, key='mem_month_all')
@@ -497,12 +494,10 @@ with tab2:
                 st.info('해당 연도의 월 데이터가 없습니다.')
 
         else:
-            # 해당 팀원 데이터
             dfM_all = dfY[dfY['member'] == member_select].copy()
             months_avail = sorted(dfM_all['month'].unique().tolist()) or list(range(1, 13))
             month_sel = st.selectbox('월 선택(일별 상세/요약)', months_avail, index=(len(months_avail)-1 if months_avail else 0), key='mem_month_single')
 
-            # 연간 요약
             y_ins_amt = dfM_all.loc[dfM_all['category']=='보험',   'amount'].sum()
             y_non_amt = dfM_all.loc[dfM_all['category']=='비보험', 'amount'].sum()
             y_tot_amt = dfM_all['amount'].sum()
@@ -520,7 +515,6 @@ with tab2:
                 ("연간 건수(비보험)", f"{y_non_cnt:,}"),
             ])
 
-            # 월간 요약
             dfM_month = dfM_all[dfM_all['month'] == month_sel].copy()
             m_ins_amt = dfM_month.loc[dfM_month['category']=='보험',   'amount'].sum()
             m_non_amt = dfM_month.loc[dfM_month['category']=='비보험', 'amount'].sum()
@@ -539,7 +533,6 @@ with tab2:
                 ("월 건수(비보험)", f"{m_non_cnt:,}"),
             ])
 
-            # 일별 합계
             daily = (
                 dfM_all[dfM_all['month'] == month_sel]
                 .groupby('day', dropna=False)['amount'].sum().reset_index()
@@ -553,7 +546,6 @@ with tab2:
                 column_config={'금액(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
 
-            # 상세 보기
             days_in_month = sorted(dfM_all.loc[dfM_all['month'] == month_sel, 'day'].dropna().unique().tolist())
             if days_in_month:
                 sel_day = st.selectbox('상세 보기 날짜 선택', days_in_month, key='member_day_detail')
@@ -706,7 +698,7 @@ with tab2:
                 column_config={'연간합계(만원)': st.column_config.NumberColumn(format='%.0f')}
             )
 
-    # ───────── 4) 계산서 통계 (요구 반영)
+    # ───────── 4) 계산서 통계 (개선)
     with tab_invoice:
         st.markdown('#### 계산서 통계')
 
@@ -808,6 +800,7 @@ with tab2:
             # ── 업체별 계산서 목록 (팀 전체/개인 × 연간/월간 연동)
             st.markdown('##### 업체별 계산서 목록')
             scope2 = df_per.copy()
+
             if scope2.empty:
                 st.info(f"{titleP} 조건에 맞는 계산서 데이터가 없습니다.")
             else:
@@ -820,7 +813,6 @@ with tab2:
                     lambda r: (r['세준금(만원)']/r['발행금액(만원)']*100) if r['발행금액(만원)'] else 0.0,
                     axis=1
                 )
-                # 🔽 발행금액 기준 내림차순
                 by_loc = by_loc.sort_values('발행금액(만원)', ascending=False).reset_index(drop=True)
 
                 st.dataframe(
