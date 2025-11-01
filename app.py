@@ -394,14 +394,14 @@ with tab1:
 with tab2:
     st.markdown('### 통계')
 
-    # ── ID -> 이름 헬퍼
+    # ── ID -> 이름 매핑 헬퍼
     def _name_from(_id: str, coll: list[dict]) -> str:
         for x in coll:
             if x.get('id') == _id:
                 return x.get('name', '')
         return ''
 
-    # ── 원천 데이터 → DF (수입 records)
+    # ── 원천 데이터(수입) → DF
     records = st.session_state.get('income_records', [])
     if not records:
         st.info('데이터가 없습니다. 먼저 [수입 입력]에서 데이터를 추가해 주세요.')
@@ -424,7 +424,7 @@ with tab2:
     df['month'] = df['date'].dt.month.astype(int)
     df['day']   = df['date'].dt.strftime('%Y-%m-%d')
 
-    # ── 연도 선택 (수입 통계용)
+    # ── 연도 선택(수입 통계)
     cur_year = NOW_KST.year
     years = sorted(df['year'].unique().tolist())
     default_year = cur_year if cur_year in years else (years[-1] if years else cur_year)
@@ -767,7 +767,7 @@ with tab2:
             c2.metric(f'{titleP} 세준금 총합(만원)',   f'{total_tax:,.0f}')
             c3.metric('세준금 비율(%)',              f'{ratio_all:.2f}%')
 
-            # ── (팀 전체 선택 시) 팀원별 누적 표
+            # ── (팀 전체) 팀원별 누적 표
             if sel_member == '팀 전체':
                 st.markdown('##### 팀원별 누적 (선택 기간 기준)')
                 scope = df_per.copy()
@@ -797,7 +797,7 @@ with tab2:
                         }
                     )
 
-            # ── 업체별 계산서 목록 (팀 전체/개인 × 연간/월간 연동)
+            # ── 업체별 계산서 목록 (선택 상태와 연동)
             st.markdown('##### 업체별 계산서 목록')
             scope2 = df_per.copy()
 
@@ -813,6 +813,7 @@ with tab2:
                     lambda r: (r['세준금(만원)']/r['발행금액(만원)']*100) if r['발행금액(만원)'] else 0.0,
                     axis=1
                 )
+                # 🔽 발행금액 기준 내림차순 (존재 보장 컬럼만 사용)
                 by_loc = by_loc.sort_values('발행금액(만원)', ascending=False).reset_index(drop=True)
 
                 st.dataframe(
