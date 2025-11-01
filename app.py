@@ -615,7 +615,8 @@ with tab2:
             inv = st.session_state.get("invoice_records", [])
             if not inv:
                 st.info("계산서 데이터가 없습니다. [계산서 입력] 탭에서 먼저 추가해 주세요.")
-                st.stop()
+                # st.stop() ❌ 대신 return
+                return
 
             # 이름 매핑
             mmap = {m.get("id"): m.get("name") for m in (st.session_state.get("team_members", []) or [])}
@@ -634,7 +635,8 @@ with tab2:
             years = sorted(df["year"].dropna().unique().tolist())
             if not years:
                 st.warning("계산서 연도 데이터가 없습니다.")
-                st.stop()
+                return
+
             cur_year = NOW_KST.year
             c1, c2 = st.columns([2, 2])
             with c1:
@@ -652,6 +654,10 @@ with tab2:
             # 팀원 선택
             members = sorted(dfY["member"].dropna().unique().tolist())
             member_sel = st.selectbox("팀원 선택", ["팀 전체"] + members, index=0, key="t2_inv_mem")
+
+            if dfY.empty:
+                st.info("선택된 조건에 맞는 데이터가 없습니다.")
+                return
 
             # 전체 요약
             if member_sel == "팀 전체":
@@ -729,7 +735,6 @@ with tab2:
                         "세준금비율(%)": st.column_config.NumberColumn(format="%.2f"),
                     }
                 )
-
 
 
 
