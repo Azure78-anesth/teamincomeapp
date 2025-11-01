@@ -163,6 +163,9 @@ def init_state():
         ]
     if "income_records" not in st.session_state:
         st.session_state.income_records = []
+    # ✅ 계산서 세션 초기화
+    if "invoice_records" not in st.session_state:
+        st.session_state.invoice_records = []
 
 def load_data():
     if sb:
@@ -273,20 +276,110 @@ def swap_order(list_key: str, idx_a: int, idx_b: int):
             st.warning("순서 저장 실패(네트워크/권한)")
     load_data(); ensure_order(list_key); st.rerun()
 
+# ─────────────────────────────────────────
+# Invoices (계산서) – Supabase ↔ 세션
+# ─────────────────────────────────────────
+def load_invoices(year: int | None = None):
+    """Supabase에서 invoices를 읽어 세션에 invoice_records로 적재"""
+    if sb:
+        try:
+            q = sb.table("invoices").select("*")
+            if year is not None:
+                q = q.like("ym", f"{year}-%")
+            res = q.order("ym", desc=True).order("created_at", desc=True).execute()
+            rows = res.data or []
+            st.session_state.invoice_records = [{
+                "id": r["id"],
+                "ym": r["ym"],
+                "teamMemberId": r.get("team_member_id"),
+                "locationId":   r.get("location_id"),
+                "insType":      r.get("ins_type"),
+                "issueAmount":  float(r.get("issue_amount", 0) or 0),
+                "taxAmount":    float(r.get("tax_amount", 0) or 0),
+                "createdAt":    r.get("created_at"),
+            } for r in rows]
+            return
+        except Exception:
+            st.warning("계산서 로딩 실패(오프라인/권한) → 임시 메모리로 계속합니다.")
+    # sb 없음/실패 시: 세션 값 유지
+
+def reload_invoice_records(year: int | None = None):
+    load_invoices(year)
+
+def invoice_insert(payload: Dict[str, Any]) -> str | None:
+    """payload: {ym, teamMemberId, locationId, insType, issueAmount, taxAmount}"""
+    if sb:
+        try:
+            res = sb.table("invoices").insert({
+                "ym": payload["ym"],
+                "team_member_id": payload["teamMemberId"],
+                "location_id": payload["locationId"],
+                "ins_type": payload["insType"],
+                "issue_amount": float(payload["issueAmount"]),
+                "tax_amount":   float(payload["taxAmount"]),
+            }).select("id").execute()
+            if res.data:
+                return res.data[0]["id"]
+        except Exception:
+            st.warning("계산서 저장 실패(네트워크/권한) → 임시 메모리에만 반영합니다.")
+    # 세션 fallback
+    new_id = f"inv_{datetime.now().timestamp()}"
+    st.session_state.invoice_records.append({
+        "id": new_id, **payload, "createdAt": datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+    })
+    return new_id
+
+def invoice_update(id_value: str, payload: Dict[str, Any]) -> bool:
+    """payload: {ym, teamMemberId, locationId, insType, issueAmount, taxAmount}"""
+    ok = False
+    if sb:
+        try:
+            res = sb.table("invoices").update({
+                "ym": payload["ym"],
+                "team_member_id": payload["teamMemberId"],
+                "location_id": payload["locationId"],
+                "ins_type": payload["insType"],
+                "issue_amount": float(payload["issueAmount"]),
+                "tax_amount":   float(payload["taxAmount"]),
+            }).eq("id", id_value).execute()
+            ok = bool(res.data)
+        except Exception:
+            st.warning("계산서 수정 실패(네트워크/권한) → 임시 메모리에만 반영합니다.")
+    if not ok:
+        for r in st.session_state.invoice_records:
+            if r["id"] == id_value:
+                r.update(payload); ok = True; break
+    return ok
+
+def invoice_delete(id_value: str) -> bool:
+    ok = False
+    if sb:
+        try:
+            sb.table("invoices").delete().eq("id", id_value).execute()
+            ok = True
+        except Exception:
+            st.warning("계산서 삭제 실패(네트워크/권한) → 임시 메모리에서만 삭제합니다.")
+    # 세션에서 제거
+    st.session_state.invoice_records = [r for r in st.session_state.invoice_records if r["id"] != id_value]
+    return True
+
 # ============================
 # Bootstrapping
 # ============================
 st.title("팀 수입 관리")
 if sb: st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
-else: st.info("🧪 Supabase 미설정 — 세션 메모리로 동작합니다. 팀 사용은 Secrets에 SUPABASE 설정하세요.")
+else:  st.info("🧪 Supabase 미설정 — 세션 메모리로 동작합니다. 팀 사용은 Secrets에 SUPABASE 설정하세요.")
 
 load_data(); ensure_order("team_members"); ensure_order("locations")
+# ✅ 계산서도 첫 진입 시 미리 로드
+reload_invoice_records(NOW_KST.year)
 
 st.session_state.setdefault("confirm_target", None)
 st.session_state.setdefault("confirm_action", None)
 st.session_state.setdefault("edit_income_id", None)
 st.session_state.setdefault("confirm_delete_income_id", None)
 st.session_state.setdefault("records_page", 0)
+
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["입력", "통계", "설정", "기록 관리", "정산", "계산서"])
 
