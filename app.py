@@ -1739,25 +1739,29 @@ with tab6:
         issue_amount = _num(issue_raw)
         tax_amount   = _num(tax_raw)
 
-        if st.button("계산서 등록", type="primary", key="inv_submit"):
-            if not (member_id and loc_id and ym and issue_amount is not None and tax_amount is not None and issue_amount >= 0 and tax_amount >= 0):
-                st.error("모든 필드를 올바르게 입력하세요.")
-            else:
-                new_id = invoice_insert({
-                    "ym": ym,
-                    "teamMemberId": member_id,
-                    "locationId":  loc_id,
-                    "insType":     ins_type,
-                    "issueAmount": float(issue_amount),
-                    "taxAmount":   float(tax_amount),
-                })
-                # 최신 데이터 재로드
-                try:
-                    reload_invoice_records(in_year)
-                except Exception:
-                    pass
-                st.success(f"{ym} 계산서가 저장되었습니다 ✅")
-                _safe_rerun()
+if st.button("계산서 등록", type="primary", key="inv_submit"):
+    if not (member_id and loc_id and ym and issue_amount is not None and tax_amount is not None and issue_amount >= 0 and tax_amount >= 0):
+        st.error("모든 필드를 올바르게 입력하세요.")
+    else:
+        payload = {
+            "ym": ym,
+            "teamMemberId": member_id,
+            "locationId":  loc_id,
+            "insType":     ins_type,
+            "issueAmount": float(issue_amount),
+            "taxAmount":   float(tax_amount),
+        }
+        new_id = invoice_insert(payload)   # ✅ DB 저장
+        if new_id:
+            reload_invoice_records(NOW_KST.year)  # ✅ 저장 직후 최신화
+            st.success(f"{ym} 계산서가 저장되었습니다 ✅")
+            try:
+                st.rerun()
+            except Exception:
+                pass
+        else:
+            st.error("계산서 저장 실패(네트워크/RLS/시크릿 확인)")
+
 
     # ============================
     # (2) 수정·삭제
