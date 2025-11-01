@@ -1970,27 +1970,35 @@ if st.button("계산서 등록", type="primary", key="inv_submit"):
                 except ValueError:
                     issue_edit = None; tax_edit = None; st.error("금액은 숫자만 입력하세요.")
 
-                b1, b2 = st.columns(2)
-                with b1:
-                    if st.button("✅ 저장", type="primary", key="edit_inv_save"):
-                        if issue_edit is None or tax_edit is None or issue_edit < 0 or tax_edit < 0:
-                            st.error("금액을 올바르게 입력하세요.")
-                        else:
-                            new_payload = {
-                                "ym": f"{edit_year:04d}-{edit_month:02d}",
-                                "teamMemberId": member_id_edit,
-                                "locationId":   loc_id_edit,
-                                "insType":      ins_edit,
-                                "issueAmount":  float(issue_edit),
-                                "taxAmount":    float(tax_edit),
-                            }
-                            invoice_update(target["id"], new_payload)
-                            st.session_state.edit_invoice_id = None
-                            try:
-                                reload_invoice_records(edit_year)
-                            except Exception:
-                                pass
-                            st.success("수정되었습니다."); _safe_rerun()
-                with b2:
-                    if st.button("❌ 취소", key="edit_inv_cancel"):
-                        st.session_state.edit_invoice_id = None; _safe_rerun()
+b1, b2 = st.columns(2)
+with b1:
+    if st.button("✅ 저장", type="primary", key="edit_inv_save"):
+        if issue_edit is None or tax_edit is None or issue_edit < 0 or tax_edit < 0:
+            st.error("금액을 올바르게 입력하세요.")
+        elif not member_id_edit or not loc_id_edit:
+            st.error("팀원/업체를 다시 선택해 주세요. (ID 매핑 실패)")
+        else:
+            new_payload = {
+                "ym": f"{edit_year:04d}-{edit_month:02d}",
+                "teamMemberId": member_id_edit,
+                "locationId":   loc_id_edit,
+                "insType":      ins_edit,
+                "issueAmount":  float(issue_edit),
+                "taxAmount":    float(tax_edit),
+            }
+            ok, err = invoice_update(target["id"], new_payload)
+            if not ok:
+                st.error(f"수정 실패: {err}")
+            else:
+                # 수정이 다른 연도로 이동했을 수도 있으니 새 연도 기준으로 재로딩
+                try:
+                    reload_invoice_records(int(new_payload["ym"][:4]))
+                except Exception:
+                    reload_invoice_records(NOW_KST.year)
+                st.session_state.edit_invoice_id = None
+                st.success("수정되었습니다.")
+                _safe_rerun()
+with b2:
+    if st.button("❌ 취소", key="edit_inv_cancel"):
+        st.session_state.edit_invoice_id = None
+        _safe_rerun()
