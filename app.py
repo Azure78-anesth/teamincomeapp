@@ -154,6 +154,46 @@ def _boot_once():
 
 _boot_once()
 
+# ============================
+# 최종 부팅 동기화(정의 순서로 인해 비어 있을 수 있는 세션을 재로딩)
+# - 이 블록은 load_data / ensure_order / reload_invoice_records 가
+#   모두 정의된 '뒤'에 위치해야 합니다.
+# ============================
+def _final_boot_sync():
+    # 세션 기본키 보장
+    st.session_state.setdefault("team_members", [])
+    st.session_state.setdefault("locations", [])
+    st.session_state.setdefault("income_records", [])
+    st.session_state.setdefault("invoice_records", [])
+
+    # DB → 세션 로드 (Supabase 연결 시)
+    try:
+        if 'load_data' in globals():
+            load_data()
+    except Exception:
+        pass
+
+    # 정렬 보정
+    try:
+        if 'ensure_order' in globals():
+            ensure_order("team_members")
+            ensure_order("locations")
+    except Exception:
+        pass
+
+    # 계산서도 연도 기준 재로드 (있으면)
+    try:
+        if 'reload_invoice_records' in globals():
+            reload_invoice_records(NOW_KST.year)
+        elif 'load_invoices' in globals():
+            load_invoices(NOW_KST.year)
+    except Exception:
+        pass
+
+# 기존에 상단에서 _boot_once()를 호출했더라도,
+# 아래 최종 동기화를 한 번 더 수행해 세션을 확실히 채웁니다.
+_final_boot_sync()
+
 
 
 
