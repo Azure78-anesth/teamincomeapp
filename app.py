@@ -1503,16 +1503,15 @@ with tab5:
 with tab6:
     st.subheader("계산서 입력 · 월별 관리")
 
-    from datetime import datetime
     import pandas as pd
 
-    # ▸ 달 선택: 연/월 드롭다운(달력 X)
-    now = datetime.today()
-    years_avail_all  = sorted({int(x["ym"].split("-")[0]) for x in st.session_state.get("invoice_records", []) if x.get("ym")}|{now.year})
+    # ▸ 입력용 연/월 (현재 연/월 항상 포함)
+    years_from_inv = {int(x["ym"].split("-")[0]) for x in st.session_state.get("invoice_records", []) if x.get("ym")}
+    years_avail_all = sorted(years_from_inv | {NOW_KST.year})
     months_avail_all = list(range(1, 13))
 
-    in_year  = st.selectbox("연도", years_avail_all, index=years_avail_all.index(now.year), key="inv_in_year")
-    in_month = st.selectbox("월", months_avail_all, index=now.month-1, key="inv_in_month")
+    in_year  = st.selectbox("연도", years_avail_all, index=years_avail_all.index(NOW_KST.year), key="inv_in_year")
+    in_month = st.selectbox("월", months_avail_all, index=NOW_KST.month - 1, key="inv_in_month")
     ym = f"{in_year:04d}-{in_month:02d}"
 
     # ▸ 팀원 선택
@@ -1538,9 +1537,11 @@ with tab6:
     issue_amount = _num(issue_raw)
     tax_amount   = _num(tax_raw)
 
+    # 세션 캐시 초기화
     if "invoice_records" not in st.session_state:
         st.session_state.invoice_records = []
 
+    # ▸ 저장 (DB 유틸이 있으면 거기로 교체 가능)
     if st.button("계산서 등록", type="primary", key="inv_submit"):
         if not (member_id and loc_id and ym and issue_amount is not None and tax_amount is not None and issue_amount >= 0 and tax_amount >= 0):
             st.error("모든 필드를 올바르게 입력하세요.")
@@ -1554,21 +1555,21 @@ with tab6:
                 "insType": ins_type,
                 "issueAmount": float(issue_amount),
                 "taxAmount": float(tax_amount),
-                # "memo":  제거
             }
-            # upsert_row("invoices", payload)  # DB 유틸 쓰는 경우 이 줄 사용
-            st.session_state.invoice_records.append(payload)  # 세션 캐시
+            # upsert_row("invoices", payload)  # ← DB 쓰면 이 줄로 대체
+            st.session_state.invoice_records.append(payload)
             st.success(f"{ym} 계산서가 저장되었습니다 ✅")
 
     st.divider()
     st.markdown("#### 월별 계산서 현황")
 
-    # ▸ 조회 연/월 (기본 연간 리셋, 과거 조회 가능)
+    # ▸ 조회 연/월 (현재 연도 항상 포함)
     inv_all = st.session_state.get("invoice_records", [])
-    years_q  = sorted({int(x["ym"].split("-")[0]) for x in inv_all if x.get("ym")}|{now.year})
+    years_q = sorted({int(x["ym"].split("-")[0]) for x in inv_all if x.get("ym")} | {NOW_KST.year})
     months_q = list(range(1, 13))
-    qy = st.selectbox("조회 연도", years_q, index=years_q.index(now.year), key="inv_q_year")
-    qm = st.selectbox("조회 월", months_q, index=now.month-1, key="inv_q_month")
+
+    qy = st.selectbox("조회 연도", years_q, index=years_q.index(NOW_KST.year), key="inv_q_year")
+    qm = st.selectbox("조회 월", months_q, index=NOW_KST.month - 1, key="inv_q_month")
     qym = f"{qy:04d}-{qm:02d}"
 
     rows = [r for r in inv_all if r.get("ym") == qym]
@@ -1587,7 +1588,7 @@ with tab6:
             use_container_width=True,
             column_config={
                 "발행금액(만원)": st.column_config.NumberColumn(format="%.0f"),
-                "세준금(만원)": st.column_config.NumberColumn(format="%.0f"),
+                "세준금(만원)":   st.column_config.NumberColumn(format="%.0f"),
             },
         )
         total_issue = float(df["발행금액(만원)"].sum())
