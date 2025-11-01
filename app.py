@@ -50,19 +50,16 @@ def metric_cards(items: list[tuple[str, str]]):
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 # ─────────────────────────────────────────
-# Invoices helpers (snake_case 전용)
+# Invoices helpers (snake_case 전용, 오류 원인 표시 + FK 점검)
 # ─────────────────────────────────────────
 def reload_invoice_records(year: int | None = None):
-    """
-    Supabase invoices → st.session_state.invoice_records 로딩
-    """
+    """Supabase invoices → st.session_state.invoice_records 로딩"""
     st.session_state.setdefault("invoice_records", [])
     if not sb:
         return
     try:
-        q = (
-            sb.table("invoices")
-              .select("id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at")
+        q = sb.table("invoices").select(
+            "id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at"
         )
         if year:
             q = q.like("ym", f"{year}-%")
@@ -73,8 +70,8 @@ def reload_invoice_records(year: int | None = None):
         res = q.execute()
         rows = res.data or []
         st.session_state.invoice_records = [{
-            "id": r.get("id"),
-            "ym": r.get("ym"),
+            "id":           r.get("id"),
+            "ym":           r.get("ym"),
             "teamMemberId": r.get("team_member_id"),
             "locationId":   r.get("location_id"),
             "insType":      r.get("ins_type"),
@@ -82,62 +79,79 @@ def reload_invoice_records(year: int | None = None):
             "taxAmount":    float(r.get("tax_amount") or 0),
             "createdAt":    r.get("created_at"),
         } for r in rows]
+    except Exception as e:
+        st.error(f"계산서 로드 실패: {e}")
+
+def _sb_exists(table: str, id_value: str) -> bool:
+    if not id_value:
+        return False
+    try:
+        res = sb.table(table).select("id").eq("id", id_value).limit(1).execute()
+        return bool(res.data)
     except Exception:
-        # 실패해도 앱은 살아있게
-        pass
+        return False
 
-
-def invoice_insert(payload: dict) -> str | None:
+def invoice_insert(payload: dict) -> tuple[bool, str | None]:
     """
-    payload 예시:
-    {
-      "ym": "2025-11",
-      "teamMemberId": "...",
-      "locationId": "...",
-      "insType": "보험" | "비보험",
-      "issueAmount": 120.0,
-      "taxAmount": 12.0
-    }
+    payload:
+      ym, teamMemberId, locationId, insType, issueAmount, taxAmount
+    반환: (성공여부, 오류메시지)
     """
+    st.session_state.setdefault("invoice_records", [])
     if not sb:
-        # 세션 fallback
+        # 오프라인/로컬 세션 저장 (임시)
         new_id = f"inv_{datetime.now().timestamp()}"
-        st.session_state.setdefault("invoice_records", [])
-        st.session_state.invoice_records.append({ "id": new_id, **payload, "createdAt": datetime.now().isoformat() })
-        return new_id
+        st.session_state.invoice_records.append({
+            "id": new_id, **payload, "createdAt": datetime.now().isoformat()
+        })
+        return (True, None)
 
+    # 1) FK 존재 검사: team_members / locations
+    mid = payload.get("teamMemberId")
+    lid = payload.get("locationId")
+    if not _sb_exists("team_members", mid):
+        return (False, f"team_members에 id가 없습니다: {mid!r}")
+    if not _sb_exists("locations", lid):
+        return (False, f"locations에 id가 없습니다: {lid!r}")
+
+    # 2) INSERT 실행
     try:
         res = (
             sb.table("invoices")
               .insert({
-                  "ym": payload["ym"],
+                  "ym":            payload["ym"],
                   "team_member_id": payload["teamMemberId"],
-                  "location_id": payload["locationId"],
-                  "ins_type": payload.get("insType"),
-                  "issue_amount": float(payload["issueAmount"]),
-                  "tax_amount": float(payload["taxAmount"]),
+                  "location_id":    payload["locationId"],
+                  "ins_type":       payload.get("insType", ""),
+                  "issue_amount":   float(payload.get("issueAmount", 0) or 0),
+                  "tax_amount":     float(payload.get("taxAmount",   0) or 0),
               })
               .select("id")
               .execute()
         )
-        if res.data:
-            return res.data[0]["id"]
-    except Exception:
-        return None
-    return None
-
+        if not res.data:
+            return (False, "INSERT 응답이 비었습니다(RLS/정책/권한 문제일 수 있음).")
+        return (True, None)
+    except Exception as e:
+        # 정확한 원인(외래키 위반, 타입, RLS 등) 노출
+        return (False, f"INSERT 실패: {e}")
 
 def invoice_delete(id_value: str) -> bool:
     if not sb:
-        st.session_state["invoice_records"] = [r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value]
+        st.session_state["invoice_records"] = [
+            r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value
+        ]
         return True
     try:
         sb.table("invoices").delete().eq("id", id_value).execute()
-    except Exception:
+    except Exception as e:
+        st.error(f"삭제 실패: {e}")
         return False
-    # 로컬 상태도 동기화
-    st.session_state["invoice_records"] = [r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value]
+    st.session_state["invoice_records"] = [
+        r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value
+    ]
     return True
+
 
 
 # ============================
