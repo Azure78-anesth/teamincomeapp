@@ -49,6 +49,97 @@ def metric_cards(items: list[tuple[str, str]]):
     parts.append('</div>')
     st.markdown("".join(parts), unsafe_allow_html=True)
 
+# ─────────────────────────────────────────
+# Invoices helpers (snake_case 전용)
+# ─────────────────────────────────────────
+def reload_invoice_records(year: int | None = None):
+    """
+    Supabase invoices → st.session_state.invoice_records 로딩
+    """
+    st.session_state.setdefault("invoice_records", [])
+    if not sb:
+        return
+    try:
+        q = (
+            sb.table("invoices")
+              .select("id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at")
+        )
+        if year:
+            q = q.like("ym", f"{year}-%")
+        try:
+            q = q.order("ym", desc=True).order("created_at", desc=True)
+        except Exception:
+            pass
+        res = q.execute()
+        rows = res.data or []
+        st.session_state.invoice_records = [{
+            "id": r.get("id"),
+            "ym": r.get("ym"),
+            "teamMemberId": r.get("team_member_id"),
+            "locationId":   r.get("location_id"),
+            "insType":      r.get("ins_type"),
+            "issueAmount":  float(r.get("issue_amount") or 0),
+            "taxAmount":    float(r.get("tax_amount") or 0),
+            "createdAt":    r.get("created_at"),
+        } for r in rows]
+    except Exception:
+        # 실패해도 앱은 살아있게
+        pass
+
+
+def invoice_insert(payload: dict) -> str | None:
+    """
+    payload 예시:
+    {
+      "ym": "2025-11",
+      "teamMemberId": "...",
+      "locationId": "...",
+      "insType": "보험" | "비보험",
+      "issueAmount": 120.0,
+      "taxAmount": 12.0
+    }
+    """
+    if not sb:
+        # 세션 fallback
+        new_id = f"inv_{datetime.now().timestamp()}"
+        st.session_state.setdefault("invoice_records", [])
+        st.session_state.invoice_records.append({ "id": new_id, **payload, "createdAt": datetime.now().isoformat() })
+        return new_id
+
+    try:
+        res = (
+            sb.table("invoices")
+              .insert({
+                  "ym": payload["ym"],
+                  "team_member_id": payload["teamMemberId"],
+                  "location_id": payload["locationId"],
+                  "ins_type": payload.get("insType"),
+                  "issue_amount": float(payload["issueAmount"]),
+                  "tax_amount": float(payload["taxAmount"]),
+              })
+              .select("id")
+              .execute()
+        )
+        if res.data:
+            return res.data[0]["id"]
+    except Exception:
+        return None
+    return None
+
+
+def invoice_delete(id_value: str) -> bool:
+    if not sb:
+        st.session_state["invoice_records"] = [r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value]
+        return True
+    try:
+        sb.table("invoices").delete().eq("id", id_value).execute()
+    except Exception:
+        return False
+    # 로컬 상태도 동기화
+    st.session_state["invoice_records"] = [r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value]
+    return True
+
+
 # ============================
 # Supabase 연결
 # ============================
