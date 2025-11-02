@@ -1657,25 +1657,101 @@ with tab5:
 # Tab 6: 계산서 (입력 / 수정·삭제)
 # ============================
 with tab6:
+    import streamlit as st
     import pandas as pd
     from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
+    except Exception:
+        NOW_KST = datetime.now()
 
-    # 안전 rerun
+    # ───────────────── Supabase 헬퍼 ─────────────────
+    from supabase import create_client
+
+    @st.cache_resource
+    def _get_supabase():
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
+        return create_client(url, key)
+
+    _sb = _get_supabase()
+
+    def invoice_insert(payload: dict) -> tuple[bool, str | None]:
+        """
+        payload 예:
+        {
+          "ym": "2025-11",          # 텍스트(YYYY-MM)로 저장 중일 때
+          "teamMemberId": "...",
+          "locationId": "...",
+          "insType": "보험" | "비보험",
+          "issueAmount": 120.0,     # 만원 단위
+          "taxAmount": 12.0,        # 만원 단위
+        }
+        """
+        try:
+            # ⚠️ 파이썬 클라에서는 JS 스타일의 .insert(...).select("*") 체인 사용 금지
+            res = _sb.table("invoices").insert(payload, returning="representation").execute()
+            if getattr(res, "error", None):
+                return False, str(res.error)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def invoice_update(invoice_id: str, patch: dict) -> tuple[bool, str | None]:
+        try:
+            res = _sb.table("invoices").update(patch).eq("id", invoice_id).execute()
+            if getattr(res, "error", None):
+                return False, str(res.error)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def invoice_delete(invoice_id: str) -> bool:
+        try:
+            res = _sb.table("invoices").delete().eq("id", invoice_id).execute()
+            return not bool(getattr(res, "error", None))
+        except Exception:
+            return False
+
+    def reload_invoice_records(year: int) -> None:
+        """
+        세션의 ss.invoice_records 를 지정 연도의 데이터로 갱신.
+        테이블에 별도 year 컬럼이 없다면 ym LIKE 'YYYY-%' 사용.
+        """
+        try:
+            q = (
+                _sb.table("invoices")
+                  .select("*")
+                  .like("ym", f"{year:04d}-%")
+                  .order("ym", desc=False)
+                  .execute()
+            )
+            if getattr(q, "error", None):
+                st.error(f"계산서 로드 실패: {q.error}")
+                return
+            st.session_state.invoice_records = q.data or []
+        except Exception as e:
+            st.error(f"계산서 로드 실패: {e}")
+
+    # ───────────────── 안전 rerun ─────────────────
     def _inv_safe_rerun():
         try:
             st.rerun()
         except AttributeError:
-            try: st.experimental_rerun()
-            except Exception: pass
+            try:
+                st.experimental_rerun()
+            except Exception:
+                pass
 
-    # 세션 기본값
+    # ───────────────── 세션 기본값 ─────────────────
     ss = st.session_state
     ss.setdefault("invoice_records", [])
     ss.setdefault("inv_page", 0)
     ss.setdefault("edit_invoice_id", None)
     ss.setdefault("confirm_delete_invoice_id", None)
 
-    # 공통 헬퍼
+    # ───────────────── 공통 헬퍼 ─────────────────
     def _name_from(_id: str, coll: list[dict]) -> str:
         for x in coll:
             if x.get("id") == _id:
@@ -1698,7 +1774,7 @@ with tab6:
     tab6_input, tab6_manage = st.tabs(["입력", "수정·삭제"])
 
     # ============================
-    # (1) 입력: 반드시 폼으로 감싸 제출 버튼을 격리
+    # (1) 입력
     # ============================
     with tab6_input:
         st.subheader("계산서 입력")
@@ -1711,57 +1787,78 @@ with tab6:
 
             col_y, col_m = st.columns(2)
             with col_y:
-                in_year  = st.selectbox("연도", years_avail_all,
-                                        index=years_avail_all.index(NOW_KST.year),
-                                        key="inv_in_year")
+                in_year = st.selectbox(
+                    "연도",
+                    years_avail_all,
+                    index=years_avail_all.index(NOW_KST.year),
+                    key="inv_in_year",
+                )
             with col_m:
-                in_month = st.selectbox("월", months_avail_all,
-                                        index=NOW_KST.month - 1,
-                                        key="inv_in_month")
+                in_month = st.selectbox(
+                    "월",
+                    months_avail_all,
+                    index=NOW_KST.month - 1,
+                    key="inv_in_month",
+                )
             ym = f"{in_year:04d}-{in_month:02d}"
 
             # 팀원
-            member_names = [m.get("name","") for m in ss.get("team_members", [])]
-            member_name  = st.selectbox("팀원", member_names, key="inv_member") if member_names else None
-            member_id    = _member_id_by_name(member_name) if member_name else None
+            member_names = [m.get("name", "") for m in ss.get("team_members", [])]
+            member_name = st.selectbox("팀원", member_names, key="inv_member") if member_names else None
+            member_id = _member_id_by_name(member_name) if member_name else None
 
             # 보험/비보험 → 업체
-            ins_type = st.radio("구분", ["보험","비보험"], horizontal=True, index=0, key="inv_ins")
-            loc_all   = ss.get("locations", [])
-            loc_candidates = [l for l in loc_all if l.get("category")==ins_type] or loc_all
-            loc_name_opts  = [l.get("name","") for l in loc_candidates]
-            loc_name       = st.selectbox("업체", loc_name_opts, key="inv_loc") if loc_name_opts else None
-            loc_id         = _loc_id_by_name(loc_name) if loc_name else None
+            ins_type = st.radio("구분", ["보험", "비보험"], horizontal=True, index=0, key="inv_ins")
+            loc_all = ss.get("locations", [])
+            loc_candidates = [l for l in loc_all if l.get("category") == ins_type] or loc_all
+            loc_name_opts = [l.get("name", "") for l in loc_candidates]
+            loc_name = st.selectbox("업체", loc_name_opts, key="inv_loc") if loc_name_opts else None
+            loc_id = _loc_id_by_name(loc_name) if loc_name else None
 
             # 금액
             def _num(v):
-                try: return float(str(v).replace(",","").strip())
-                except: return None
+                try:
+                    return float(str(v).replace(",", "").strip())
+                except Exception:
+                    return None
+
             col_issue, col_tax = st.columns(2)
             with col_issue:
                 issue_raw = st.text_input("계산서 발행금액(만원)", "", placeholder="예: 120", key="inv_issue")
             with col_tax:
-                tax_raw   = st.text_input("세준금(만원)", "", placeholder="예: 12", key="inv_tax")
+                tax_raw = st.text_input("세준금(만원)", "", placeholder="예: 12", key="inv_tax")
             issue_amount = _num(issue_raw)
-            tax_amount   = _num(tax_raw)
+            tax_amount = _num(tax_raw)
 
             submitted = st.form_submit_button("계산서 등록", type="primary", use_container_width=True)
             if submitted:
-                if not (member_id and loc_id and ym and issue_amount is not None and tax_amount is not None and issue_amount >= 0 and tax_amount >= 0):
+                if not (
+                    member_id
+                    and loc_id
+                    and ym
+                    and issue_amount is not None
+                    and tax_amount is not None
+                    and issue_amount >= 0
+                    and tax_amount >= 0
+                ):
                     st.error("모든 필드를 올바르게 입력하세요.")
                 else:
-                    ok, err = invoice_insert({
-                        "ym": ym,
-                        "teamMemberId": member_id,
-                        "locationId":  loc_id,
-                        "insType":     ins_type,
-                        "issueAmount": float(issue_amount),
-                        "taxAmount":   float(tax_amount),
-                    })
+                    ok, err = invoice_insert(
+                        {
+                            "ym": ym,
+                            "teamMemberId": member_id,
+                            "locationId": loc_id,
+                            "insType": ins_type,
+                            "issueAmount": float(issue_amount),
+                            "taxAmount": float(tax_amount),
+                        }
+                    )
                     if ok:
                         # DB에서 다시 읽어 탭2/다른 탭과 동기화
-                        try: reload_invoice_records(in_year)
-                        except Exception: pass
+                        try:
+                            reload_invoice_records(in_year)
+                        except Exception:
+                            pass
                         st.success(f"{ym} 계산서가 저장되었습니다 ✅")
                         _inv_safe_rerun()
                     else:
@@ -1779,106 +1876,133 @@ with tab6:
             st.stop()
 
         # DF 구성
-        df = pd.DataFrame([{
-            "id": r.get("id"),
-            "ym": r.get("ym", ""),
-            "year": int(r.get("ym","0000-00")[:4]) if r.get("ym") else None,
-            "month": int(r.get("ym","0000-00")[5:7]) if r.get("ym") else None,
-            "member_id": r.get("teamMemberId"),
-            "member": _name_from(r.get("teamMemberId"), ss.get("team_members", [])),
-            "location_id": r.get("locationId"),
-            "location": _name_from(r.get("locationId"), ss.get("locations", [])),
-            "ins_type": r.get("insType",""),
-            "issue": float(r.get("issueAmount", 0) or 0.0),
-            "tax":   float(r.get("taxAmount",   0) or 0.0),
-        } for r in inv])
+        df = pd.DataFrame(
+            [
+                {
+                    "id": r.get("id"),
+                    "ym": r.get("ym", ""),
+                    "year": int(r.get("ym", "0000-00")[:4]) if r.get("ym") else None,
+                    "month": int(r.get("ym", "0000-00")[5:7]) if r.get("ym") else None,
+                    "member_id": r.get("teamMemberId"),
+                    "member": _name_from(r.get("teamMemberId"), ss.get("team_members", [])),
+                    "location_id": r.get("locationId"),
+                    "location": _name_from(r.get("locationId"), ss.get("locations", [])),
+                    "ins_type": r.get("insType", ""),
+                    "issue": float(r.get("issueAmount", 0) or 0.0),
+                    "tax": float(r.get("taxAmount", 0) or 0.0),
+                }
+                for r in inv
+            ]
+        )
 
         # 연/월/정렬/필터
         years = sorted([y for y in df["year"].dropna().unique().tolist()] + [NOW_KST.year])
-        c1, c2, c3 = st.columns([2,3,2])
+        c1, c2, c3 = st.columns([2, 3, 2])
         with c1:
             year_sel = st.selectbox("연도", years, index=years.index(NOW_KST.year), key="inv_year_sel")
         with c2:
-            months_avail = sorted(df.loc[df["year"]==year_sel, "month"].dropna().unique().tolist())
+            months_avail = sorted(df.loc[df["year"] == year_sel, "month"].dropna().unique().tolist())
             month_opts = ["전체"] + months_avail
             month_sel = st.selectbox("월", month_opts, index=0, key="inv_month_sel")
         with c3:
             order_by = st.selectbox("정렬", ["발행금액↓", "발행금액↑", "세준금↓", "세준금↑"], key="inv_order_by")
 
-        c4, c5, c6 = st.columns([2,2,2])
+        c4, c5, c6 = st.columns([2, 2, 2])
         with c4:
-            mem_opts = ["전체"] + sorted([m.get("name","") for m in ss.get("team_members", [])])
-            mem_sel  = st.selectbox("팀원", mem_opts, index=0, key="inv_mem_sel")
+            mem_opts = ["전체"] + sorted([m.get("name", "") for m in ss.get("team_members", [])])
+            mem_sel = st.selectbox("팀원", mem_opts, index=0, key="inv_mem_sel")
         with c5:
-            ins_sel  = st.selectbox("구분", ["전체","보험","비보험"], index=0, key="inv_ins_sel")
+            ins_sel = st.selectbox("구분", ["전체", "보험", "비보험"], index=0, key="inv_ins_sel")
         with c6:
             loc_pool = ss.get("locations", [])
             if ins_sel != "전체":
-                loc_pool = [l for l in loc_pool if l.get("category")==ins_sel]
-            loc_opts = ["전체"] + [l.get("name","") for l in loc_pool]
-            loc_sel  = st.selectbox("업체", loc_opts, index=0, key="inv_loc_sel")
+                loc_pool = [l for l in loc_pool if l.get("category") == ins_sel]
+            loc_opts = ["전체"] + [l.get("name", "") for l in loc_pool]
+            loc_sel = st.selectbox("업체", loc_opts, index=0, key="inv_loc_sel")
 
-        q = df[df["year"]==year_sel].copy()
-        if month_sel != "전체": q = q[q["month"]==month_sel]
-        if mem_sel  != "전체": q = q[q["member"]==mem_sel]
-        if ins_sel  != "전체": q = q[q["ins_type"]==ins_sel]
-        if loc_sel  != "전체": q = q[q["location"]==loc_sel]
+        q = df[df["year"] == year_sel].copy()
+        if month_sel != "전체":
+            q = q[q["month"] == month_sel]
+        if mem_sel != "전체":
+            q = q[q["member"] == mem_sel]
+        if ins_sel != "전체":
+            q = q[q["ins_type"] == ins_sel]
+        if loc_sel != "전체":
+            q = q[q["location"] == loc_sel]
 
         if order_by == "발행금액↓":
-            q = q.sort_values(["issue","id"], ascending=[False, True])
+            q = q.sort_values(["issue", "id"], ascending=[False, True])
         elif order_by == "발행금액↑":
-            q = q.sort_values(["issue","id"], ascending=[True, True])
+            q = q.sort_values(["issue", "id"], ascending=[True, True])
         elif order_by == "세준금↓":
-            q = q.sort_values(["tax","id"], ascending=[False, True])
+            q = q.sort_values(["tax", "id"], ascending=[False, True])
         else:
-            q = q.sort_values(["tax","id"], ascending=[True, True])
+            q = q.sort_values(["tax", "id"], ascending=[True, True])
 
         # 페이지네이션
         PAGE_SIZE = 20
-        total = len(q); total_pages = max((total-1)//PAGE_SIZE + 1, 1)
-        ss.inv_page = min(ss.inv_page, total_pages-1)
+        total = len(q)
+        total_pages = max((total - 1) // PAGE_SIZE + 1, 1)
+        ss.inv_page = min(ss.inv_page, total_pages - 1)
         ss.inv_page = max(ss.inv_page, 0)
 
-        pc1, pc2, pc3 = st.columns([1,2,1])
+        pc1, pc2, pc3 = st.columns([1, 2, 1])
         with pc1:
-            if st.button("⬅ 이전", disabled=(ss.inv_page==0), key="inv_prev"):
-                ss.inv_page -= 1; _inv_safe_rerun()
+            if st.button("⬅ 이전", disabled=(ss.inv_page == 0), key="inv_prev"):
+                ss.inv_page -= 1
+                _inv_safe_rerun()
         with pc2:
-            st.markdown(f"<div style='text-align:center'>페이지 {ss.inv_page+1} / {total_pages} (총 {total}건)</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='text-align:center'>페이지 {ss.inv_page+1} / {total_pages} (총 {total}건)</div>",
+                unsafe_allow_html=True,
+            )
         with pc3:
-            if st.button("다음 ➡", disabled=(ss.inv_page>=total_pages-1), key="inv_next"):
-                ss.inv_page += 1; _inv_safe_rerun()
+            if st.button("다음 ➡", disabled=(ss.inv_page >= total_pages - 1), key="inv_next"):
+                ss.inv_page += 1
+                _inv_safe_rerun()
 
         start = ss.inv_page * PAGE_SIZE
-        page_df = q.iloc[start:start+PAGE_SIZE].copy()
+        page_df = q.iloc[start : start + PAGE_SIZE].copy()
 
         # 표
         st.markdown("#### 결과 표")
         st.dataframe(
-            page_df[["ym","member","location","ins_type","issue","tax"]].rename(
-                columns={"ym":"연월","member":"팀원","location":"업체","ins_type":"구분","issue":"발행금액(만원)","tax":"세준금(만원)"}
+            page_df[["ym", "member", "location", "ins_type", "issue", "tax"]].rename(
+                columns={
+                    "ym": "연월",
+                    "member": "팀원",
+                    "location": "업체",
+                    "ins_type": "구분",
+                    "issue": "발행금액(만원)",
+                    "tax": "세준금(만원)",
+                }
             ),
             use_container_width=True,
             column_config={
                 "발행금액(만원)": st.column_config.NumberColumn(format="%.0f"),
-                "세준금(만원)":   st.column_config.NumberColumn(format="%.0f"),
-            }
+                "세준금(만원)": st.column_config.NumberColumn(format="%.0f"),
+            },
         )
 
         # 카드형 수정/삭제
         st.markdown("#### 선택/수정/삭제")
         for _, row in page_df.iterrows():
             with st.container(border=True):
-                left, right = st.columns([6,2])
-                left.write(f"**{row['ym']} · {row['member']} · {row['location']} · {row['ins_type']} · 발행 {int(row['issue']):,}만원 / 세준 {int(row['tax']):,}만원**")
+                left, right = st.columns([6, 2])
+                left.write(
+                    f"**{row['ym']} · {row['member']} · {row['location']} · {row['ins_type']} · "
+                    f"발행 {int(row['issue']):,}만원 / 세준 {int(row['tax']):,}만원**"
+                )
                 with right:
                     col_a, col_b = st.columns(2)
                     with col_a:
                         if st.button("🖉 수정", key=f"edit_inv_{row['id']}"):
-                            ss.edit_invoice_id = row["id"]; _inv_safe_rerun()
+                            ss.edit_invoice_id = row["id"]
+                            _inv_safe_rerun()
                     with col_b:
                         if st.button("🗑 삭제", key=f"del_inv_{row['id']}"):
-                            ss.confirm_delete_invoice_id = row["id"]; _inv_safe_rerun()
+                            ss.confirm_delete_invoice_id = row["id"]
+                            _inv_safe_rerun()
 
         # 삭제 확인
         if ss.confirm_delete_invoice_id:
@@ -1890,58 +2014,78 @@ with tab6:
                     if st.button("✅ 삭제 확정", key="inv_delete_confirm"):
                         if invoice_delete(rid):
                             ss.confirm_delete_invoice_id = None
-                            st.success("삭제되었습니다."); _inv_safe_rerun()
+                            st.success("삭제되었습니다.")
+                            _inv_safe_rerun()
                         else:
                             st.error("삭제 실패(권한/RLS/네트워크)")
                 with c2:
                     if st.button("❌ 취소", key="inv_delete_cancel"):
-                        ss.confirm_delete_invoice_id = None; _inv_safe_rerun()
+                        ss.confirm_delete_invoice_id = None
+                        _inv_safe_rerun()
 
         # 수정 폼
         if ss.edit_invoice_id:
-            target = next((x for x in ss.invoice_records if x.get("id")==ss.edit_invoice_id), None)
+            target = next((x for x in ss.invoice_records if x.get("id") == ss.edit_invoice_id), None)
             if target:
                 st.markdown("#### 선택한 계산서 수정")
 
-                cur_year  = int(target["ym"][:4]); cur_month = int(target["ym"][5:7])
+                cur_year = int(target["ym"][:4])
+                cur_month = int(target["ym"][5:7])
                 cur_member_name = _name_from(target["teamMemberId"], ss.get("team_members", []))
-                cur_loc = next((l for l in ss.get("locations", []) if l.get("id")==target.get("locationId")), None)
-                cur_ins = target.get("insType","보험")
+                cur_loc = next((l for l in ss.get("locations", []) if l.get("id") == target.get("locationId")), None)
+                cur_ins = target.get("insType", "보험")
 
                 with st.form(f"invoice_edit_form_{target['id']}"):
                     c1, c2 = st.columns(2)
                     with c1:
-                        years_all = sorted({int(x["ym"][:4]) for x in ss.invoice_records if x.get("ym")} | {NOW_KST.year})
-                        edit_year  = st.selectbox("연도", years_all, index=years_all.index(cur_year), key="edit_inv_year")
-                        edit_month = st.selectbox("월", list(range(1,13)), index=cur_month-1, key="edit_inv_month")
+                        years_all = sorted(
+                            {int(x["ym"][:4]) for x in ss.invoice_records if x.get("ym")} | {NOW_KST.year}
+                        )
+                        edit_year = st.selectbox("연도", years_all, index=years_all.index(cur_year), key="edit_inv_year")
+                        edit_month = st.selectbox("월", list(range(1, 13)), index=cur_month - 1, key="edit_inv_month")
 
-                        member_options = {m.get("name",""): m.get("id") for m in ss.get("team_members", [])}
+                        member_options = {m.get("name", ""): m.get("id") for m in ss.get("team_members", [])}
                         member_name_edit = st.selectbox(
-                            "팀원", list(member_options.keys()),
-                            index=list(member_options.keys()).index(cur_member_name) if cur_member_name in member_options else 0,
-                            key="edit_inv_member"
+                            "팀원",
+                            list(member_options.keys()) or [cur_member_name or ""],
+                            index=(
+                                (list(member_options.keys()).index(cur_member_name))
+                                if (cur_member_name in member_options)
+                                else 0
+                            ),
+                            key="edit_inv_member",
                         )
                         member_id_edit = member_options.get(member_name_edit)
                     with c2:
-                        ins_edit = st.radio("구분", ["보험","비보험"], index=0 if cur_ins=="보험" else 1, horizontal=True, key="edit_inv_ins")
-                        filtered_locs = [l for l in ss.get("locations", []) if l.get("category")==ins_edit]
-                        loc_options = {l.get("name",""): l.get("id") for l in filtered_locs} or {(_name_from(target["locationId"], ss.get("locations", [])) or ""): target.get("locationId")}
+                        ins_edit = st.radio(
+                            "구분", ["보험", "비보험"], index=0 if cur_ins == "보험" else 1, horizontal=True, key="edit_inv_ins"
+                        )
+                        filtered_locs = [l for l in ss.get("locations", []) if l.get("category") == ins_edit]
+                        loc_options = {l.get("name", ""): l.get("id") for l in filtered_locs} or {
+                            (_name_from(target["locationId"], ss.get("locations", [])) or ""): target.get("locationId")
+                        }
                         names = list(loc_options.keys())
                         default_loc_idx = names.index(cur_loc.get("name")) if (cur_loc and cur_loc.get("name") in names) else 0
                         loc_name_edit = st.selectbox("업체", names, index=default_loc_idx, key="edit_inv_loc")
-                        loc_id_edit   = loc_options.get(loc_name_edit)
+                        loc_id_edit = loc_options.get(loc_name_edit)
 
                     col_e1, col_e2 = st.columns(2)
                     with col_e1:
-                        issue_raw_edit = st.text_input("계산서 발행금액(만원)", value=str(int(float(target.get("issueAmount",0)))), key="edit_inv_issue")
+                        issue_raw_edit = st.text_input(
+                            "계산서 발행금액(만원)", value=str(int(float(target.get("issueAmount", 0)))), key="edit_inv_issue"
+                        )
                     with col_e2:
-                        tax_raw_edit   = st.text_input("세준금(만원)", value=str(int(float(target.get("taxAmount",0)))), key="edit_inv_tax")
+                        tax_raw_edit = st.text_input(
+                            "세준금(만원)", value=str(int(float(target.get("taxAmount", 0)))), key="edit_inv_tax"
+                        )
 
                     try:
-                        issue_edit = float(str(issue_raw_edit).replace(",","").strip())
-                        tax_edit   = float(str(tax_raw_edit).replace(",","").strip())
+                        issue_edit = float(str(issue_raw_edit).replace(",", "").strip())
+                        tax_edit = float(str(tax_raw_edit).replace(",", "").strip())
                     except ValueError:
-                        issue_edit = None; tax_edit = None; st.error("금액은 숫자만 입력하세요.")
+                        issue_edit = None
+                        tax_edit = None
+                        st.error("금액은 숫자만 입력하세요.")
 
                     if st.form_submit_button("✅ 저장", type="primary"):
                         if issue_edit is None or tax_edit is None or issue_edit < 0 or tax_edit < 0:
@@ -1950,22 +2094,29 @@ with tab6:
                             new_payload = {
                                 "ym": f"{edit_year:04d}-{edit_month:02d}",
                                 "teamMemberId": member_id_edit,
-                                "locationId":   loc_id_edit,
-                                "insType":      ins_edit,
-                                "issueAmount":  float(issue_edit),
-                                "taxAmount":    float(tax_edit),
+                                "locationId": loc_id_edit,
+                                "insType": ins_edit,
+                                "issueAmount": float(issue_edit),
+                                "taxAmount": float(tax_edit),
                             }
-                            ok, err = invoice_insert(new_payload) if target.get("id") is None else (True, None)
-                            # 수정은 너의 헬퍼(invoice_update)가 있다면 거기에 맞춰 교체해도 됨.
-                            # 여기선 간단히 세션 갱신만:
-                            for org in ss.invoice_records:
-                                if org.get("id") == target["id"]:
-                                    org.update(new_payload)
-                                    break
-                            ss.edit_invoice_id = None
-                            try: reload_invoice_records(edit_year)
-                            except Exception: pass
-                            st.success("수정되었습니다."); _inv_safe_rerun()
+
+                            if target.get("id") is None:
+                                ok, err = invoice_insert(new_payload)
+                            else:
+                                ok, err = invoice_update(target["id"], new_payload)
+
+                            if not ok:
+                                st.error(f"저장 실패: {err or '원인 미상'}")
+                            else:
+                                ss.edit_invoice_id = None
+                                try:
+                                    reload_invoice_records(edit_year)
+                                except Exception:
+                                    pass
+                                st.success("수정되었습니다.")
+                                _inv_safe_rerun()
 
                     if st.form_submit_button("❌ 취소"):
-                        ss.edit_invoice_id = None; _inv_safe_rerun()
+                        ss.edit_invoice_id = None
+                        _inv_safe_rerun()
+
