@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List
-import requests
 
 # ─────────────────────────────────────────
 # Global: 한국 시간 오늘
@@ -11,7 +10,7 @@ import requests
 NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
 
 # ============================
-# Page & Styles (모바일 최적화)
+# Page & Styles (모바일 최적화 + 탭 네모박스)
 # ============================
 st.set_page_config(
     page_title="팀 수입 관리",
@@ -32,10 +31,59 @@ st.markdown("""
     --brand:#3b82f6; --brand-weak:#0b1a33;
   }
 }
+
 html, body, [class*="css"]{ font-size:16px; color:var(--text); background:var(--bg); }
 section.main > div { padding-top:.6rem; }
 h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
-/* (기존 스타일 나머지는 생략) */
+
+/* 카드/표 기본 */
+.block{
+  padding: 1rem 1.1rem; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--bg); box-shadow: 0 1px 0 rgba(0,0,0,.03);
+}
+div[data-testid="stDataFrame"]{
+  border:1px solid var(--border); border-radius:12px; overflow:hidden;
+}
+div[data-testid="stDataFrame"] thead th{
+  background: var(--soft) !important; position: sticky; top:0; z-index:2;
+  border-bottom:1px solid var(--border) !important;
+}
+div[data-testid="stDataFrame"] tbody tr:nth-child(even){
+  background: color-mix(in srgb, var(--soft) 60%, transparent);
+}
+
+/* 입력 위젯 */
+button[kind], .stButton>button{
+  min-height: 44px; border-radius: 12px; border:1px solid var(--border); font-weight:600;
+}
+.stTextInput input, .stSelectbox > div, .stDateInput input, .stNumberInput input{
+  min-height: 44px; border-radius: 12px !important;
+}
+.stRadio > div{ gap:.5rem; }
+
+/* 탭: 네모박스 스타일 */
+.stTabs [role="tablist"]{ gap:.25rem; margin-bottom:.25rem; }
+.stTabs [role="tab"]{
+  padding:.45rem .7rem; border-radius:10px; border:1px solid var(--border) !important;
+  background: var(--bg);
+}
+.stTabs [role="tab"]:hover{ background: color-mix(in srgb, var(--soft) 70%, transparent); }
+.stTabs [aria-selected="true"]{
+  background: var(--brand-weak); border-color: var(--brand) !important;
+}
+
+/* 요약 카드(모바일 2열) */
+.mgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media (max-width: 380px){ .mgrid { grid-template-columns:1fr; } }
+.mcard { padding:10px 12px; border:1px solid var(--border); border-radius:12px; background: var(--bg); }
+.mtitle { color: var(--muted); font-size:.92rem; margin-bottom:4px; }
+.mvalue { font-size:1.25rem; font-weight:700; }
+
+/* 모바일 표 글꼴 살짝 축소 */
+@media (max-width: 640px){
+  div[data-testid="stDataFrame"] *{ font-size:.95rem; }
+  div[data-testid="stDataFrame"]{ max-height: 440px; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,113 +97,8 @@ def metric_cards(items: list[tuple[str, str]]):
     parts.append('</div>')
     st.markdown("".join(parts), unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
-# Invoices helpers (snake_case 전용, 오류 원인 표시 + FK 점검)
-# ─────────────────────────────────────────
-def reload_invoice_records(year: int | None = None):
-    """Supabase invoices → st.session_state.invoice_records 로딩"""
-    st.session_state.setdefault("invoice_records", [])
-    if not sb:
-        return
-    try:
-        q = sb.table("invoices").select(
-            "id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at"
-        )
-        if year:
-            q = q.like("ym", f"{year}-%")
-        try:
-            q = q.order("ym", desc=True).order("created_at", desc=True)
-        except Exception:
-            pass
-        res = q.execute()
-        rows = res.data or []
-        st.session_state.invoice_records = [{
-            "id":           r.get("id"),
-            "ym":           r.get("ym"),
-            "teamMemberId": r.get("team_member_id"),
-            "locationId":   r.get("location_id"),
-            "insType":      r.get("ins_type"),
-            "issueAmount":  float(r.get("issue_amount") or 0),
-            "taxAmount":    float(r.get("tax_amount") or 0),
-            "createdAt":    r.get("created_at"),
-        } for r in rows]
-    except Exception as e:
-        st.error(f"계산서 로드 실패: {e}")
-
-def _sb_exists(table: str, id_value: str) -> bool:
-    if not id_value:
-        return False
-    try:
-        res = sb.table(table).select("id").eq("id", id_value).limit(1).execute()
-        return bool(res.data)
-    except Exception:
-        return False
-
-def invoice_insert(payload: dict) -> tuple[bool, str | None]:
-    """
-    payload:
-      ym, teamMemberId, locationId, insType, issueAmount, taxAmount
-    반환: (성공여부, 오류메시지)
-    """
-    st.session_state.setdefault("invoice_records", [])
-    if not sb:
-        # 오프라인/로컬 세션 저장 (임시)
-        new_id = f"inv_{datetime.now().timestamp()}"
-        st.session_state.invoice_records.append({
-            "id": new_id, **payload, "createdAt": datetime.now().isoformat()
-        })
-        return (True, None)
-
-    # 1) FK 존재 검사: team_members / locations
-    mid = payload.get("teamMemberId")
-    lid = payload.get("locationId")
-    if not _sb_exists("team_members", mid):
-        return (False, f"team_members에 id가 없습니다: {mid!r}")
-    if not _sb_exists("locations", lid):
-        return (False, f"locations에 id가 없습니다: {lid!r}")
-
-    # 2) INSERT 실행
-    try:
-        res = (
-            sb.table("invoices")
-              .insert({
-                  "ym":            payload["ym"],
-                  "team_member_id": payload["teamMemberId"],
-                  "location_id":    payload["locationId"],
-                  "ins_type":       payload.get("insType", ""),
-                  "issue_amount":   float(payload.get("issueAmount", 0) or 0),
-                  "tax_amount":     float(payload.get("taxAmount",   0) or 0),
-              })
-              .select("id")
-              .execute()
-        )
-        if not res.data:
-            return (False, "INSERT 응답이 비었습니다(RLS/정책/권한 문제일 수 있음).")
-        return (True, None)
-    except Exception as e:
-        # 정확한 원인(외래키 위반, 타입, RLS 등) 노출
-        return (False, f"INSERT 실패: {e}")
-
-def invoice_delete(id_value: str) -> bool:
-    if not sb:
-        st.session_state["invoice_records"] = [
-            r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value
-        ]
-        return True
-    try:
-        sb.table("invoices").delete().eq("id", id_value).execute()
-    except Exception as e:
-        st.error(f"삭제 실패: {e}")
-        return False
-    st.session_state["invoice_records"] = [
-        r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value
-    ]
-    return True
-
-
-
 # ============================
-# Supabase 연결
+# Supabase 연결 (도입부에서 전역 1회 생성)
 # ============================
 def get_supabase_client():
     try:
@@ -172,53 +115,6 @@ def get_supabase_client():
 sb = get_supabase_client()
 
 # ============================
-# invoices 테이블 자동 생성(있으면 통과)
-# ============================
-def ensure_invoices_table():
-    if not sb:
-        return
-    try:
-        sb.table("invoices").select("id").limit(1).execute()
-        return
-    except Exception:
-        # 없는 경우만 생성 시도 (REST RPC로 SQL 실행)
-        try:
-            url = st.secrets["SUPABASE_URL"] + "/rest/v1/rpc"
-            headers = {
-                "apikey": st.secrets["SUPABASE_ANON_KEY"],
-                "Authorization": f"Bearer {st.secrets['SUPABASE_ANON_KEY']}",
-                "Content-Type": "application/json",
-            }
-            ddl = """
-            create table if not exists public.invoices (
-              id uuid primary key default gen_random_uuid(),
-              ym text not null,
-              team_member_id text references public.team_members(id),
-              location_id text references public.locations(id),
-              ins_type text,
-              issue_amount double precision default 0,
-              tax_amount double precision default 0,
-              created_at timestamptz default now()
-            );
-            alter table public.invoices enable row level security;
-            create policy if not exists "anon_select_invoices"
-              on public.invoices for select to anon using (true);
-            create policy if not exists "anon_insert_invoices"
-              on public.invoices for insert to anon with check (true);
-            create policy if not exists "anon_update_invoices"
-              on public.invoices for update to anon using (true) with check (true);
-            create policy if not exists "anon_delete_invoices"
-              on public.invoices for delete to anon using (true);
-            """
-            requests.post(url, headers=headers, json={"query": ddl}, timeout=10)
-        except Exception:
-            # 콘솔에서 이미 생성해 둔 경우가 대부분이므로 조용히 패스
-            pass
-
-if sb:
-    ensure_invoices_table()
-
-# ============================
 # SAFE BOOT: 세션 키 보장
 # ============================
 ss = st.session_state
@@ -233,9 +129,7 @@ ss.setdefault("confirm_delete_income_id", None)
 ss.setdefault("records_page", 0)
 
 # ============================
-# PRIME FROM DB: 도입부에서 즉시 DB → 세션 채우기
-#  - 아래에 별도로 load_data()/load_invoices가 있어도 중복 문제 없음
-#  - 이미 값이 있으면 덮어쓰지 않고 유지
+# PRIME FROM DB: 최초 1회 DB → 세션 채우기 (있을 때만)
 # ============================
 def _prime_from_db():
     if not sb:
@@ -257,7 +151,7 @@ def _prime_from_db():
             } for r in rows]
     except Exception:
         pass
-    # incomes (선택)
+    # incomes
     try:
         if not ss["income_records"]:
             rows = sb.table("incomes").select("*").order("date").execute().data or []
@@ -270,24 +164,105 @@ def _prime_from_db():
             } for r in rows]
     except Exception:
         pass
-    # invoices
+    # invoices (snake_case)
     try:
         if not ss["invoice_records"]:
-            rows = sb.table("invoices").select("*").order("ym", desc=True).execute().data or []
+            rows = sb.table("invoices").select(
+                "id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at"
+            ).order("created_at", desc=True).order("ym", desc=True).execute().data or []
             ss["invoice_records"] = [{
                 "id": r.get("id"),
                 "ym": r.get("ym"),
                 "teamMemberId": r.get("team_member_id"),
                 "locationId":   r.get("location_id"),
                 "insType":      r.get("ins_type",""),
-                "issueAmount":  float(r.get("issue_amount", 0)),
-                "taxAmount":    float(r.get("tax_amount", 0)),
+                "issueAmount":  float(r.get("issue_amount", 0) or 0),
+                "taxAmount":    float(r.get("tax_amount", 0) or 0),
                 "createdAt":    r.get("created_at"),
             } for r in rows]
     except Exception:
         pass
 
 _prime_from_db()
+
+# ============================
+# Invoices helpers (snake_case 고정)
+# ============================
+def reload_invoice_records(year: int | None = None):
+    """Supabase invoices → st.session_state.invoice_records 로딩"""
+    ss.setdefault("invoice_records", [])
+    if not sb:
+        return
+    try:
+        q = sb.table("invoices").select(
+            "id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at"
+        )
+        if year:
+            q = q.like("ym", f"{year}-%")
+        try:
+            q = q.order("created_at", desc=True).order("ym", desc=True)
+        except Exception:
+            pass
+        res = q.execute()
+        rows = res.data or []
+        ss["invoice_records"] = [{
+            "id":           r.get("id"),
+            "ym":           r.get("ym"),
+            "teamMemberId": r.get("team_member_id"),
+            "locationId":   r.get("location_id"),
+            "insType":      r.get("ins_type"),
+            "issueAmount":  float(r.get("issue_amount") or 0),
+            "taxAmount":    float(r.get("tax_amount") or 0),
+            "createdAt":    r.get("created_at"),
+        } for r in rows]
+    except Exception as e:
+        st.error(f"계산서 로드 실패: {e}")
+
+def invoice_insert(payload: dict) -> tuple[bool, str | None]:
+    """
+    payload:
+      ym, teamMemberId, locationId, insType, issueAmount, taxAmount
+    반환: (성공여부, 오류메시지)
+    """
+    ss.setdefault("invoice_records", [])
+    if not sb:
+        # 오프라인/로컬 세션 저장 (임시)
+        new_id = f"inv_{datetime.now().timestamp()}"
+        ss["invoice_records"].append({
+            "id": new_id, **payload, "createdAt": datetime.now().isoformat()
+        })
+        return (True, None)
+    try:
+        res = (
+            sb.table("invoices")
+              .insert({
+                  "ym":             payload["ym"],
+                  "team_member_id": payload["teamMemberId"],
+                  "location_id":    payload["locationId"],
+                  "ins_type":       payload.get("insType", ""),
+                  "issue_amount":   float(payload.get("issueAmount", 0) or 0),
+                  "tax_amount":     float(payload.get("taxAmount",   0) or 0),
+              })
+              .select("id")
+              .execute()
+        )
+        if not res.data:
+            return (False, "INSERT 응답 없음 (RLS/권한/정책 문제일 수 있음)")
+        return (True, None)
+    except Exception as e:
+        return (False, f"INSERT 실패: {e}")
+
+def invoice_delete(id_value: str) -> bool:
+    if not sb:
+        ss["invoice_records"] = [r for r in ss.get("invoice_records", []) if r.get("id") != id_value]
+        return True
+    try:
+        sb.table("invoices").delete().eq("id", id_value).execute()
+    except Exception as e:
+        st.error(f"삭제 실패: {e}")
+        return False
+    ss["invoice_records"] = [r for r in ss.get("invoice_records", []) if r.get("id") != id_value]
+    return True
 
 # ============================
 # 헤더
@@ -297,6 +272,13 @@ if sb:
     st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
 else:
     st.info("🧪 Supabase 미설정 — 세션 메모리로 동작합니다. (Settings→Secrets에 SUPABASE 설정 시 팀 공유)")
+
+# 최신 연도 기준으로 계산서 캐시 갱신(선택)
+try:
+    reload_invoice_records(NOW_KST.year)
+except Exception:
+    pass
+
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["입력", "통계", "설정", "기록 관리", "정산", "계산서"])
 
