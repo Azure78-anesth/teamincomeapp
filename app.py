@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
-from typing import Dict, Any, Tuple
+from typing import List, Dict, Any
+
 
 # ─────────────────────────────────────────
 # Global: 한국 시간 오늘
@@ -10,7 +11,7 @@ from typing import Dict, Any, Tuple
 NOW_KST = datetime.now(ZoneInfo("Asia/Seoul"))
 
 # ============================
-# Page & Styles (모바일 최적화 + 탭 네모박스)
+# Page & Styles (모바일 세로보기 최적화)
 # ============================
 st.set_page_config(
     page_title="팀 수입 관리",
@@ -31,29 +32,28 @@ st.markdown("""
     --brand:#3b82f6; --brand-weak:#0b1a33;
   }
 }
-html, body, [class*="css"]{ font-size:16px; color:var(--text); background:var(--bg); }
-section.main > div { padding-top:.6rem; }
+
+html, body, [class*="css"] { font-size: 16px; color: var(--text); background: var(--bg); }
+section.main > div { padding-top: .6rem; }
 h1,h2,h3 { letter-spacing:.2px; margin-top:.25rem; margin-bottom:.5rem; }
 
-/* 네모박스 탭 라벨 */
-.stTabs [role="tablist"]{ gap:.35rem; margin-bottom:.35rem; }
-.stTabs [role="tab"]{
-  padding:.5rem .8rem; border-radius:10px; border:1px solid var(--border) !important;
-  background: var(--bg);
-}
-.stTabs [role="tab"][aria-selected="true"]{
-  background: var(--brand-weak);
-  border-color: var(--brand) !important;
+.block{
+  padding: 1rem 1.1rem; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--bg); box-shadow: 0 1px 0 rgba(0,0,0,.03);
 }
 
-/* 카드형 요약 */
-.mgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-@media (max-width: 380px){ .mgrid { grid-template-columns:1fr; } }
-.mcard { padding:10px 12px; border:1px solid var(--border); border-radius:12px; background: var(--bg); }
-.mtitle { color: var(--muted); font-size:.92rem; margin-bottom:4px; }
-.mvalue { font-size:1.25rem; font-weight:700; }
+.stTabs [role="tablist"]{ gap:.25rem; margin-bottom:.25rem; }
+.stTabs [role="tab"]{ padding:.45rem .7rem; border-radius:10px; border:1px solid var(--border) !important; }
+.stTabs [aria-selected="true"]{ background: var(--brand-weak); border-color: var(--brand) !important; }
 
-/* 표 */
+button[kind], .stButton>button{
+  min-height: 44px; border-radius: 12px; border:1px solid var(--border); font-weight:600;
+}
+.stTextInput input, .stSelectbox > div, .stDateInput input, .stNumberInput input{
+  min-height: 44px; border-radius: 12px !important;
+}
+.stRadio > div{ gap:.5rem; }
+
 div[data-testid="stDataFrame"]{
   border:1px solid var(--border); border-radius:12px; overflow:hidden;
 }
@@ -61,6 +61,60 @@ div[data-testid="stDataFrame"] thead th{
   background: var(--soft) !important; position: sticky; top:0; z-index:2;
   border-bottom:1px solid var(--border) !important;
 }
+.dataframe td, .dataframe th{ white-space: nowrap; }
+div[data-testid="stDataFrame"] tbody tr:nth-child(even){
+  background: color-mix(in srgb, var(--soft) 60%, transparent);
+}
+
+.stMetric{ padding:.5rem .75rem; border:1px solid var(--border); border-radius:12px; background:var(--bg); }
+.stMetric-label{ color:var(--muted); font-size:.92rem; }
+.stMetric-value{ font-size:1.25rem; }
+.stAlert{ border-radius:12px; }
+hr, .stDivider{ margin:.75rem 0; }
+.mono{ font-variant-numeric: tabular-nums; }
+
+/* 모바일: 표 폰트 조금 축소 + 높이 제한 (컬럼 강제 세로 스택은 제거) */
+@media (max-width: 640px){
+  body, [class*="css"]{ font-size: 15.5px; }
+  .stTabs [role="tab"]{ font-size:.95rem; padding:.4rem .55rem; }
+  .stMetric-value{ font-size:1.1rem; }
+  .stMetric{ padding:.45rem .6rem; }
+  div[data-testid="stDataFrame"] *{ font-size:.95rem; }
+  div[data-testid="stDataFrame"]{ max-height: 440px; }
+}
+@media (max-width: 380px){
+  body, [class*="css"]{ font-size: 15px; }
+  .stTabs [role="tab"]{ font-size:.9rem; padding:.35rem .5rem; }
+}
+
+/* ───────── 설정 탭(팀원/업체)용: 가로 정렬 강제 & 버튼 고정 크기 ───────── */
+.manage-inline [data-testid="stHorizontalBlock"]{
+  display:flex !important; flex-wrap:nowrap !important; gap:.5rem !important;
+}
+.manage-inline [data-testid="column"]{
+  width:auto !important; flex:0 0 auto !important;
+}
+.manage-inline .name-col{ min-width:160px; flex:1 1 auto !important; }
+
+.manage-inline .stButton{ width:auto !important; display:inline-block !important; }
+.manage-inline .stButton > button,
+.manage-inline button[kind],
+.manage-inline [data-testid="baseButton-secondary"],
+.manage-inline [data-testid="baseButton-primary"]{
+  display:inline-flex !important; align-items:center; justify-content:center;
+  width:48px !important; min-width:48px !important;
+  height:36px !important; padding:6px 0 !important; border-radius:10px;
+}
+
+.manage-inline .hdr{ font-weight:700; margin-bottom:6px; }
+.manage-inline .row{ display:flex; align-items:center; gap:.5rem; margin:.25rem 0; }
+
+/* ───────── 요약 카드(모바일 2열 그리드) ───────── */
+.mgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media (max-width: 380px){ .mgrid { grid-template-columns:1fr; } }
+.mcard { padding:10px 12px; border:1px solid var(--border); border-radius:12px; background: var(--bg); }
+.mtitle { color: var(--muted); font-size:.92rem; margin-bottom:4px; }
+.mvalue { font-size:1.25rem; font-weight:700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,6 +122,7 @@ div[data-testid="stDataFrame"] thead th{
 # Helpers
 # ============================
 def metric_cards(items: list[tuple[str, str]]):
+    """모바일 친화 요약 카드 (2열 그리드) — 들여쓰기 제거 버전"""
     parts = ['<div class="mgrid">']
     for title, value in items:
         parts.append(f'<div class="mcard"><div class="mtitle">{title}</div><div class="mvalue">{value}</div></div>')
@@ -75,7 +130,7 @@ def metric_cards(items: list[tuple[str, str]]):
     st.markdown("".join(parts), unsafe_allow_html=True)
 
 # ============================
-# Supabase 연결
+# Supabase (옵션)
 # ============================
 def get_supabase_client():
     try:
@@ -87,89 +142,146 @@ def get_supabase_client():
         from supabase import create_client
         return create_client(url, key)
     except Exception:
+        st.warning("Supabase 클라이언트를 불러오지 못해 세션 메모리로 동작합니다. (requirements 설치 필요)")
         return None
 
 sb = get_supabase_client()
 
 # ============================
-# 세션 기본키 보장
+# State & "DB"
 # ============================
-ss = st.session_state
-ss.setdefault("team_members", [])
-ss.setdefault("locations", [])
-ss.setdefault("income_records", [])
-ss.setdefault("invoice_records", [])
-ss.setdefault("confirm_target", None)
-ss.setdefault("confirm_action", None)
-ss.setdefault("edit_income_id", None)
-ss.setdefault("confirm_delete_income_id", None)
-ss.setdefault("records_page", 0)
+def init_state():
+    if "team_members" not in st.session_state:
+        st.session_state.team_members = [
+            {"id":"1","name":"김철수","order":0},
+            {"id":"2","name":"이영희","order":1},
+        ]
+    if "locations" not in st.session_state:
+        st.session_state.locations = [
+            {"id":"l1","name":"서울A치과","category":"보험","order":0},
+            {"id":"l2","name":"서울B치과","category":"비보험","order":1},
+        ]
+    if "income_records" not in st.session_state:
+        st.session_state.income_records = []
 
-# ============================
-# DB → 세션 프라임 (최초 진입 시 비어있으면 채움)
-# ============================
-def _prime_from_db():
-    if not sb:
-        return
-    # team_members
-    try:
-        if not ss["team_members"]:
-            rows = sb.table("team_members").select("*").order("order").execute().data or []
-            ss["team_members"] = [
-                {"id": r["id"], "name": r["name"], "order": r.get("order", 0)} for r in rows
-            ]
-    except Exception:
-        pass
-    # locations
-    try:
-        if not ss["locations"]:
-            rows = sb.table("locations").select("*").order("order").execute().data or []
-            ss["locations"] = [
-                {"id": r["id"], "name": r["name"], "category": r.get("category",""), "order": r.get("order",0)}
-                for r in rows
-            ]
-    except Exception:
-        pass
-    # incomes
-    try:
-        if not ss["income_records"]:
-            rows = sb.table("incomes").select("*").order("date").execute().data or []
-            ss["income_records"] = [{
-                "id": r["id"], "date": r["date"],
-                "teamMemberId": r.get("team_member_id"),
-                "locationId":   r.get("location_id"),
-                "amount": float(r.get("amount", 0)),
-                "memo": r.get("memo",""),
-            } for r in rows]
-    except Exception:
-        pass
-    # invoices
-    try:
-        if not ss["invoice_records"]:
-            rows = sb.table("invoices").select(
-                "id, ym, team_member_id, location_id, ins_type, issue_amount, tax_amount, created_at"
-            ).order("ym", desc=True).execute().data or []
-            ss["invoice_records"] = [{
-                "id": r.get("id"),
-                "ym": r.get("ym"),
-                "teamMemberId": r.get("team_member_id"),
-                "locationId":   r.get("location_id"),
-                "insType":      r.get("ins_type",""),
-                "issueAmount":  float(r.get("issue_amount", 0)),
-                "taxAmount":    float(r.get("tax_amount", 0)),
-                "createdAt":    r.get("created_at"),
-            } for r in rows]
-    except Exception:
-        pass
+def load_data():
+    if sb:
+        try:
+            tmem = sb.table("team_members").select("*").order("order").execute().data
+            locs = sb.table("locations").select("*").order("order").execute().data
+            incs = sb.table("incomes").select("*").order("date").execute().data
+            st.session_state.team_members = [{"id":x["id"],"name":x["name"],"order":x.get("order",0)} for x in tmem]
+            st.session_state.locations = [{"id":x["id"],"name":x["name"],"category":x.get("category",""),"order":x.get("order",0)} for x in locs]
+            st.session_state.income_records = [{
+                "id": x["id"], "date": x["date"],
+                "teamMemberId": x.get("team_member_id"),
+                "locationId": x.get("location_id"),
+                "amount": float(x["amount"]),
+                "memo": x.get("memo",""),
+            } for x in incs]
+        except Exception:
+            st.warning("오프라인(또는 Supabase 오류) 감지 → 임시 메모리 모드로 전환합니다.")
+            init_state()
+    else:
+        init_state()
 
-_prime_from_db()
+def upsert_row(table: str, payload: Dict[str, Any]):
+    if sb:
+        try:
+            if table == "incomes":
+                sb.table("incomes").insert({
+                    "id": payload["id"], "date": payload["date"],
+                    "team_member_id": payload["teamMemberId"],
+                    "location_id": payload["locationId"],
+                    "amount": payload["amount"], "memo": payload.get("memo",""),
+                }).execute()
+            elif table == "team_members":
+                sb.table("team_members").insert({
+                    "id": payload["id"], "name": payload["name"], "order": payload.get("order",0),
+                }).execute()
+            elif table == "locations":
+                sb.table("locations").insert({
+                    "id": payload["id"], "name": payload["name"],
+                    "category": payload["category"], "order": payload.get("order",0),
+                }).execute()
+            load_data(); return
+        except Exception:
+            st.warning("Supabase 기록 실패(오프라인?) → 임시 메모리에 저장합니다.")
+    if table == "incomes": st.session_state.income_records.append(payload)
+    elif table == "team_members": st.session_state.team_members.append(payload)
+    elif table == "locations": st.session_state.locations.append(payload)
 
-# ============================
-# Invoices helpers (snake_case 전용)
-# ============================
-def reload_invoice_records(year: int | None = None):
-    """Supabase invoices → ss.invoice_records 로딩 (연도 필터 선택)"""
-    ss.setdefault("invoice_records", [])
+def update_income(id_value: str, payload: dict):
+    if sb:
+        try:
+            sb.table("incomes").update({
+                "date": payload["date"], "team_member_id": payload["teamMemberId"],
+                "location_id": payload["locationId"], "amount": payload["amount"],
+                "memo": payload.get("memo",""),
+            }).eq("id", id_value).execute()
+            load_data(); return
+        except Exception:
+            st.warning("Supabase 업데이트 실패(오프라인?) → 임시 메모리에만 반영합니다.")
+    for r in st.session_state.income_records:
+        if r["id"] == id_value:
+            r.update({
+                "date": payload["date"], "teamMemberId": payload["teamMemberId"],
+                "locationId": payload["locationId"], "amount": float(payload["amount"]),
+                "memo": payload.get("memo",""),
+            }); break
+
+def delete_row(table: str, id_value: str):
+    if sb:
+        try:
+            sb.table(table).delete().eq("id", id_value).execute()
+            load_data(); return
+        except Exception:
+            st.warning("Supabase 삭제 실패(오프라인?) → 임시 메모리에서만 삭제합니다.")
+    if table == "incomes":
+        st.session_state.income_records = [r for r in st.session_state.income_records if r["id"] != id_value]
+    elif table == "team_members":
+        st.session_state.team_members = [r for r in st.session_state.team_members if r["id"] != id_value]
+    elif table == "locations":
+        st.session_state.locations = [r for r in st.session_state.locations if r["id"] != id_value]
+
+def ensure_order(list_key: str):
+    lst = st.session_state.get(list_key, [])
+    lst_sorted = sorted(lst, key=lambda x: x.get("order", 0))
+    changed = False
+    for i, x in enumerate(lst_sorted):
+        if x.get("order") != i: x["order"] = i; changed = True
+    st.session_state[list_key] = lst_sorted
+    if changed and sb:
+        table = "team_members" if list_key == "team_members" else "locations"
+        try:
+            for x in lst_sorted:
+                sb.table(table).update({"order": x["order"]}).eq("id", x["id"]).execute()
+        except Exception:
+            st.warning(f"{table} order 정규화 저장 실패(네트워크/권한)")
+
+def swap_order(list_key: str, idx_a: int, idx_b: int):
+    lst = st.session_state[list_key]
+    a, b = lst[idx_a], lst[idx_b]
+    a["order"], b["order"] = b.get("order",0), a.get("order",0)
+    st.session_state[list_key] = sorted(lst, key=lambda x: x["order"])
+    if sb:
+        table = "team_members" if list_key == "team_members" else "locations"
+        try:
+            sb.table(table).update({"order": a["order"]}).eq("id", a["id"]).execute()
+            sb.table(table).update({"order": b["order"]}).eq("id", b["id"]).execute()
+        except Exception:
+            st.warning("순서 저장 실패(네트워크/권한)")
+    load_data(); ensure_order(list_key); st.rerun()
+
+# ─────────────────────────────────────────
+# Invoices (계산서) – snake_case 테이블 전용  ← ① 추가 블록 시작
+# ─────────────────────────────────────────
+def load_invoices(year: int | None = None):
+    """
+    Supabase invoices → st.session_state.invoice_records 로딩
+    (수입/팀원/업체 로직과 분리, incomes에는 영향 X)
+    """
+    st.session_state.setdefault("invoice_records", [])
     if not sb:
         return
     try:
@@ -182,99 +294,117 @@ def reload_invoice_records(year: int | None = None):
             q = q.order("ym", desc=True).order("created_at", desc=True)
         except Exception:
             pass
-        rows = (q.execute().data) or []
-        ss["invoice_records"] = [{
-            "id": r.get("id"),
-            "ym": r.get("ym"),
+        res = q.execute()
+        rows = res.data or []
+        st.session_state.invoice_records = [{
+            "id":           r.get("id"),
+            "ym":           r.get("ym"),
             "teamMemberId": r.get("team_member_id"),
             "locationId":   r.get("location_id"),
-            "insType":      r.get("ins_type",""),
-            "issueAmount":  float(r.get("issue_amount", 0)),
-            "taxAmount":    float(r.get("tax_amount", 0)),
+            "insType":      r.get("ins_type", ""),
+            "issueAmount":  float(r.get("issue_amount") or 0),
+            "taxAmount":    float(r.get("tax_amount") or 0),
             "createdAt":    r.get("created_at"),
         } for r in rows]
     except Exception as e:
-        st.error(f"계산서 로드 실패: {e}")
+        st.warning(f"계산서 로드 실패: {e}")
 
-def invoice_insert(payload: Dict[str, Any]) -> Tuple[bool, str | None]:
+def invoice_insert(payload: Dict[str, Any]) -> tuple[bool, str | None]:
     """
-    payload keys (camelCase 입력을 snake_case로 매핑해서 DB에 저장):
+    payload:
       ym, teamMemberId, locationId, insType, issueAmount, taxAmount
-    반환: (성공여부, 오류메시지)
+    ※ incomes와 분리되어 있어 수입 입력(upsert_row)에는 영향 없음
     """
-    ss.setdefault("invoice_records", [])
+    st.session_state.setdefault("invoice_records", [])
 
     if not sb:
-        # 오프라인 세션 저장 (임시)
+        # 오프라인/테스트: 세션에만 보관
         new_id = f"inv_{datetime.now().timestamp()}"
-        ss["invoice_records"].append({
+        st.session_state.invoice_records.append({
             "id": new_id, **payload, "createdAt": datetime.now().isoformat()
         })
-        return True, None
-
-    data = {
-        "ym":              payload.get("ym"),
-        "team_member_id":  payload.get("teamMemberId"),
-        "location_id":     payload.get("locationId"),
-        "ins_type":        payload.get("insType"),
-        "issue_amount":    float(payload.get("issueAmount") or 0),
-        "tax_amount":      float(payload.get("taxAmount") or 0),
-    }
+        return (True, None)
 
     try:
-        res = sb.table("invoices").insert(data).select("id").execute()
+        res = (
+            sb.table("invoices")
+              .insert({
+                  "ym":             payload["ym"],
+                  "team_member_id": payload["teamMemberId"],
+                  "location_id":    payload["locationId"],
+                  "ins_type":       payload.get("insType", ""),
+                  "issue_amount":   float(payload.get("issueAmount", 0) or 0),
+                  "tax_amount":     float(payload.get("taxAmount",   0) or 0),
+              })
+              .select("id")
+              .execute()
+        )
         if not res.data:
-            return False, "INSERT 응답이 비었습니다(RLS/권한/정책 문제일 수 있음)."
-        return True, None
+            return (False, "INSERT 응답이 비었습니다(RLS/권한/정책 문제 가능).")
+        return (True, None)
     except Exception as e:
-        return False, f"invoice_insert 실패: {e}"
+        return (False, f"계산서 INSERT 실패: {e}")
 
-def invoice_update(id_value: str, payload: Dict[str, Any]) -> Tuple[bool, str | None]:
+def invoice_update(id_value: str, payload: Dict[str, Any]) -> tuple[bool, str | None]:
     if not sb:
-        # 세션만 업데이트
-        for r in ss.get("invoice_records", []):
+        for r in st.session_state.get("invoice_records", []):
             if r.get("id") == id_value:
                 r.update(payload)
                 break
-        return True, None
-
-    data = {
-        "ym":              payload.get("ym"),
-        "team_member_id":  payload.get("teamMemberId"),
-        "location_id":     payload.get("locationId"),
-        "ins_type":        payload.get("insType"),
-        "issue_amount":    float(payload.get("issueAmount") or 0),
-        "tax_amount":      float(payload.get("taxAmount") or 0),
-    }
+        return (True, None)
     try:
-        res = sb.table("invoices").update(data).eq("id", id_value).select("id").execute()
-        if not res.data:
-            return False, "UPDATE 응답이 비었습니다."
-        return True, None
+        sb.table("invoices").update({
+            "ym":             payload["ym"],
+            "team_member_id": payload["teamMemberId"],
+            "location_id":    payload["locationId"],
+            "ins_type":       payload.get("insType", ""),
+            "issue_amount":   float(payload.get("issueAmount", 0) or 0),
+            "tax_amount":     float(payload.get("taxAmount",   0) or 0),
+        }).eq("id", id_value).execute()
+        return (True, None)
     except Exception as e:
-        return False, f"invoice_update 실패: {e}"
+        return (False, f"계산서 UPDATE 실패: {e}")
 
-def invoice_delete(id_value: str) -> bool:
+def invoice_delete(id_value: str) -> tuple[bool, str | None]:
     if not sb:
-        ss["invoice_records"] = [r for r in ss.get("invoice_records", []) if r.get("id") != id_value]
-        return True
+        st.session_state["invoice_records"] = [
+            r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value
+        ]
+        return (True, None)
     try:
         sb.table("invoices").delete().eq("id", id_value).execute()
-    except Exception:
-        return False
-    ss["invoice_records"] = [r for r in ss.get("invoice_records", []) if r.get("id") != id_value]
-    return True
+    except Exception as e:
+        return (False, f"계산서 삭제 실패: {e}")
+    st.session_state["invoice_records"] = [
+        r for r in st.session_state.get("invoice_records", []) if r.get("id") != id_value
+    ]
+    return (True, None)
+
+# 기존 탭6 코드 호환용 별칭 (탭6에서 reload_invoice_records(...)를 호출하던 경우)
+def reload_invoice_records(year: int | None = None):
+    return load_invoices(year)
+# ─────────────────────────────────────────
+# (추가 블록 끝)
+# ─────────────────────────────────────────
 
 # ============================
-# 헤더
+# Bootstrapping
 # ============================
 st.title("팀 수입 관리")
-if sb:
-    st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
-else:
-    st.info("🧪 Supabase 미설정 — 세션 메모리로 동작합니다. (Settings→Secrets에 SUPABASE 설정 시 팀 공유)")
+if sb: st.success("✅ Supabase 연결됨 (팀 공동 사용 가능)")
+else: st.info("🧪 Supabase 미설정 — 세션 메모리로 동작합니다. 팀 사용은 Secrets에 SUPABASE 설정하세요.")
 
+load_data(); ensure_order("team_members"); ensure_order("locations")
 
+# ← ② 추가 두 줄 (계산서 세션키 보장 + 초기 로드)
+st.session_state.setdefault("invoice_records", [])
+load_invoices(NOW_KST.year)
+
+st.session_state.setdefault("confirm_target", None)
+st.session_state.setdefault("confirm_action", None)
+st.session_state.setdefault("edit_income_id", None)
+st.session_state.setdefault("confirm_delete_income_id", None)
+st.session_state.setdefault("records_page", 0)
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["입력", "통계", "설정", "기록 관리", "정산", "계산서"])
 
