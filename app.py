@@ -1421,75 +1421,149 @@ with tab3:
 
     tab_in, tab_out = st.tabs(["입력", "정산"])
 
-    # ==================== 입력 ====================
-    with tab_in:
-        st.markdown("#### 월별 입력")
+# ==================== 입력 ====================
+with tab_in:
+    st.markdown("#### 월별 입력")
 
-        # 기본 설정
-        with st.expander("기본 설정", expanded=True):
-            c1,c2,c3 = st.columns(3)
-            nf = c1.number_input("성모 고정액(만원)", value=sungmo_fixed, step=10, key="settle_fixed")
-            nb = c2.selectbox("부산숨 수령자", members_all, index=members_all.index(recv_bs), key="settle_bs_recv")
-            na = c3.selectbox("아미유 수령자", members_all, index=members_all.index(recv_am), key="settle_am_recv")
-            if st.button("저장", type="primary", key="save_month_conf"):
-                sb_upsert_month(ym_key, nf, nb, na)
-                st.success("저장되었습니다."); st.rerun()
-            st.caption("이진용외과 수령자: 강현석 (고정)")
+    # ───────────────── 기본 설정 (항상 펼침) ─────────────────
+    with st.container(border=True):
+        st.markdown("##### 기본 설정")
+        c1, c2, c3 = st.columns(3)
+        nf = c1.number_input("성모 고정액(만원)", value=int(sungmo_fixed), step=10, key="inp_fixed")
+        nb = c2.selectbox("부산숨 수령자", members_all, index=members_all.index(recv_bs) if recv_bs in members_all else 0, key="inp_recv_bs")
+        na = c3.selectbox("아미유 수령자", members_all, index=members_all.index(recv_am) if recv_am in members_all else 0, key="inp_recv_am")
 
-        # 팀비 입력
-        with st.expander("팀비 사용 입력", expanded=True):
-            c1,c2,c3 = st.columns([1,1,2])
-            w = c1.selectbox("사용자", members_all, key="teamfee_user")
-            a = c2.text_input("금액(만원)", "", key="teamfee_amount")
-            m = c3.text_input("메모", "", key="teamfee_memo")
-            if st.button("팀비 사용 추가", type="primary", key="teamfee_add_btn"):
-                if a.strip().isdigit():
-                    sb_add("settlement_teamfee", {"ym_key": ym_key, "who": w, "amount": int(a), "memo": m})
-                    st.rerun()
-                else:
-                    st.error("금액은 숫자로 입력해주세요.")
+        if st.button("저장", type="primary", key="inp_save_month_conf"):
+            sb_upsert_month(ym_key, nf, nb, na)
+            st.success("저장되었습니다.")
+            st.rerun()
 
-        st.markdown("##### 팀비 사용 내역")
+        st.caption("이진용외과 수령자: 강현석 (고정)")
+
+    # ───────────────── 팀비 사용 (항상 펼침) ─────────────────
+    with st.container(border=True):
+        st.markdown("##### 팀비 사용 입력")
+        c1, c2, c3 = st.columns([1, 1, 2])
+        w = c1.selectbox("사용자", members_all, key="inp_teamfee_user")
+        a = c2.text_input("금액(만원)", "", key="inp_teamfee_amount")
+        m = c3.text_input("메모", "", key="inp_teamfee_memo")
+
+        if st.button("팀비 사용 추가", type="primary", key="inp_teamfee_add"):
+            if str(a).strip().isdigit():
+                sb_add("settlement_teamfee", {"ym_key": ym_key, "who": w, "amount": int(a), "memo": m})
+                st.rerun()
+            else:
+                st.error("금액은 숫자로 입력하세요.")
+
+        st.markdown("###### 팀비 사용 내역")
         tf = sb_list("settlement_teamfee", ym_key)
         if not tf:
             st.caption("아직 팀비 사용 내역이 없습니다.")
         else:
             for r in tf:
-                c1,c2,c3,c4,c5 = st.columns([1,1,2,1,1])
-                c1.write(r["who"]); c2.write(f"{r['amount']}만원"); c3.write(r["memo"])
-                if c4.button("수정", key=f"tf_edit_{r['id']}"):
-                    new_a = st.text_input("금액", str(r["amount"]), key=f"tf_na_{r['id']}")
-                    new_m = st.text_input("메모", r["memo"], key=f"tf_nm_{r['id']}")
-                    if st.button("저장", key=f"tf_save_{r['id']}"):
-                        sb_update("settlement_teamfee", r["id"], {"amount": int(new_a), "memo": new_m})
-                        st.rerun()
-                if c5.button("삭제", key=f"tf_del_{r['id']}"):
-                    sb_delete("settlement_teamfee", r["id"]); st.rerun()
+                rid = r["id"]
+                st.session_state.setdefault(f"tf_edit_{rid}", False)
 
-        # 팀원 간 이체 입력
-        with st.expander("팀원 간 이체 입력", expanded=True):
-            c1,c2,c3,c4 = st.columns([1,1,1,2])
-            f = c1.selectbox("보낸 사람", members_all, key="transfer_from")
-            t = c2.selectbox("받는 사람", [x for x in members_all if x!=f], key="transfer_to")
-            a = c3.text_input("금액(만원)", "", key="transfer_amount")
-            m = c4.text_input("메모", "", key="transfer_memo")
-            if st.button("이체 추가", type="primary", key="transfer_add_btn"):
-                if a.strip().isdigit():
-                    sb_add("settlement_transfer", {"ym_key": ym_key, "from": f, "to": t, "amount": int(a), "memo": m})
+                row1 = st.columns([1, 1, 2, 1, 1])
+                row1[0].write(r["who"])
+                row1[1].write(f"{int(r['amount'])}만원")
+                row1[2].write(r.get("memo",""))
+
+                # 수정 토글
+                if row1[3].button("수정", key=f"tf_btn_edit_{rid}"):
+                    st.session_state[f"tf_edit_{rid}"] = not st.session_state[f"tf_edit_{rid}"]
+
+                # 삭제(확인 없이 즉시)
+                if row1[4].button("삭제", key=f"tf_btn_del_{rid}"):
+                    sb_delete("settlement_teamfee", rid)
                     st.rerun()
-                else:
-                    st.error("금액은 숫자로 입력해주세요.")
 
-        st.markdown("##### 이체 내역")
+                # 편집 영역
+                if st.session_state[f"tf_edit_{rid}"]:
+                    ec1, ec2, ec3 = st.columns([1, 2, 1])
+                    new_a = ec1.text_input("금액", str(int(r["amount"])), key=f"tf_edit_amount_{rid}")
+                    new_m = ec2.text_input("메모", r.get("memo",""), key=f"tf_edit_memo_{rid}")
+                    if ec3.button("저장", key=f"tf_btn_save_{rid}"):
+                        if str(new_a).strip().isdigit():
+                            sb_update("settlement_teamfee", rid, {"amount": int(new_a), "memo": new_m})
+                            st.session_state[f"tf_edit_{rid}"] = False
+                            st.success("수정되었습니다.")
+                            st.rerun()
+                        else:
+                            st.error("금액은 숫자로 입력하세요.")
+
+    # ───────────────── 팀원 간 이체 (항상 펼침 / 수정 가능) ─────────────────
+    with st.container(border=True):
+        st.markdown("##### 팀원 간 이체 입력")
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 2])
+        f = c1.selectbox("보낸 사람", members_all, key="inp_tr_from")
+        t = c2.selectbox("받는 사람", [x for x in members_all if x != f], key="inp_tr_to")
+        ta = c3.text_input("금액(만원)", "", key="inp_tr_amount")
+        tm = c4.text_input("메모", "", key="inp_tr_memo")
+
+        if st.button("이체 추가", type="primary", key="inp_tr_add"):
+            if str(ta).strip().isdigit():
+                sb_add("settlement_transfer", {"ym_key": ym_key, "from": f, "to": t, "amount": int(ta), "memo": tm})
+                st.rerun()
+            else:
+                st.error("금액은 숫자로 입력하세요.")
+
+        st.markdown("###### 이체 내역")
         tr = sb_list("settlement_transfer", ym_key)
         if not tr:
             st.caption("등록된 이체 내역이 없습니다.")
         else:
             for r in tr:
-                c1,c2,c3,c4,c5 = st.columns([1,0.3,1,2,1])
-                c1.write(r["from"]); c2.write("→"); c3.write(r["to"]); c4.write(r["memo"]); c5.write(f"{r['amount']}만원")
-                if c5.button("삭제", key=f"tr_del_{r['id']}"):
-                    sb_delete("settlement_transfer", r["id"]); st.rerun()
+                rid = r["id"]
+                st.session_state.setdefault(f"tr_edit_{rid}", False)
+
+                row = st.columns([1, 0.3, 1, 2, 1, 1])
+                row[0].write(r["from"])
+                row[1].write("→")
+                row[2].write(r["to"])
+                row[3].write(r.get("memo",""))
+                row[4].write(f"{int(r['amount'])}만원")
+
+                # 수정 토글
+                if row[4].button("수정", key=f"tr_btn_edit_{rid}"):
+                    st.session_state[f"tr_edit_{rid}"] = not st.session_state[f"tr_edit_{rid}"]
+
+                # 삭제(확인 없이 즉시)
+                if row[5].button("삭제", key=f"tr_btn_del_{rid}"):
+                    sb_delete("settlement_transfer", rid)
+                    st.rerun()
+
+                # 편집 영역 (보낸사람/받는사람/금액/메모 모두 수정 가능)
+                if st.session_state[f"tr_edit_{rid}"]:
+                    # 현재 값이 members_all에 없을 수도 있으니 방어적으로 index 계산
+                    cur_from = r.get("from","")
+                    cur_to   = r.get("to","")
+                    from_idx = members_all.index(cur_from) if cur_from in members_all else 0
+                    to_opts  = [x for x in members_all if x != cur_from]
+                    to_idx   = to_opts.index(cur_to) if cur_to in to_opts else 0
+
+                    ec1, ec2, ec3, ec4, ec5 = st.columns([1, 1, 1, 2, 1])
+                    new_from = ec1.selectbox("보낸 사람", members_all, index=from_idx, key=f"tr_edit_from_{rid}")
+                    # 받는 사람 옵션은 보낸 사람과 달라야 하므로 new_from 기준으로 다시 계산
+                    to_opts2 = [x for x in members_all if x != new_from]
+                    # 기존 받는 사람이 to_opts2에 없을 수 있으니 방어
+                    to_idx2 = to_opts2.index(cur_to) if cur_to in to_opts2 else 0
+                    new_to   = ec2.selectbox("받는 사람", to_opts2, index=to_idx2, key=f"tr_edit_to_{rid}")
+                    new_amt  = ec3.text_input("금액", str(int(r["amount"])), key=f"tr_edit_amount_{rid}")
+                    new_memo = ec4.text_input("메모", r.get("memo",""), key=f"tr_edit_memo_{rid}")
+
+                    if ec5.button("저장", key=f"tr_btn_save_{rid}"):
+                        try:
+                            amt_int = int(str(new_amt).strip())
+                        except:
+                            st.error("금액은 숫자로 입력하세요.")
+                        else:
+                            payload = {"from": new_from, "to": new_to, "amount": amt_int, "memo": new_memo}
+                            sb_update("settlement_transfer", rid, payload)
+                            st.session_state[f"tr_edit_{rid}"] = False
+                            st.success("수정되었습니다.")
+                            st.rerun()
+
 
     # ==================== 정산 ====================
     with tab_out:
