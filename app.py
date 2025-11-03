@@ -1329,34 +1329,10 @@ with tab5:
 
 
 # ============================
-# Tab 3: 정산 (최종본 / 보험·비보험 규칙 포함)
+# Tab 3: 정산 (항상 펼쳐진 버전)
 # ============================
 with tab3:
     st.markdown("### 정산")
-
-    # ───────── 렌더링 보정 (웨일 대응) ─────────
-    st.markdown("""
-    <style>
-    /* ✅ summary 전체에 white-space 강제 금지: 아이콘까지 텍스트로 취급되는 걸 막음 */
-    details > summary { line-height:1.5!important; }
-
-    /* ✅ 실제 텍스트(p)에는 줄바꿈/래핑 허용 */
-    .streamlit-expanderHeader p{
-      line-height:1.5!important;
-      white-space:normal!important;
-      word-break:keep-all;
-      overflow-wrap:anywhere;
-    }
-
-    /* ✅ summary 안의 아이콘은 절대 줄바꾸지 않게 보호 (클래스가 있을 때) */
-    details > summary .material-icons,
-    details > summary .material-symbols-outlined{
-      white-space:nowrap!important;
-      overflow-wrap:normal!important;
-      word-break:normal!important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
     # ───────── Supabase 연결 ─────────
     from supabase import create_client
@@ -1369,7 +1345,6 @@ with tab3:
     SUPA_KEY  = st.secrets["SUPABASE_ANON_KEY"]
     sb = create_client(SUPA_URL, SUPA_KEY)
     sdb = sb.schema("public")
-
 
     # ───────── 유틸 ─────────
     def _name_from(_id, coll):
@@ -1388,19 +1363,13 @@ with tab3:
 
     def _norm_text(x: str) -> str:
         s = unicodedata.normalize("NFKC", str(x or ""))
-        # 제로폭(Cf) 제거 + 모든 공백 제거
         s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
-        s = re.sub(r"\s+", "", s)
-        return s
+        return re.sub(r"\s+", "", s)
 
     def _same_person(a, b) -> bool:
         return _norm_text(a) == _norm_text(b)
 
     def _is_insurance_category(cat) -> bool:
-        """
-        '보험'만 포함하고 '비보험'이 들어간 건 제외.
-        DB 카테고리 명이 달라도 이 규칙이면 자동 필터됨.
-        """
         s = _norm_text(cat).lower()
         return ("보험" in s) and ("비보험" not in s)
 
@@ -1466,12 +1435,12 @@ with tab3:
     if not mrow:
         bs = members_all[0] if members_all else ""
         am = members_all[0] if members_all else ""
-        sb_upsert_month(ym_key, 650, bs, am)  # 기본 650
+        sb_upsert_month(ym_key, 650, bs, am)
         mrow = sb_get_month(ym_key)
     sungmo_fixed = int(mrow["sungmo_fixed"])
-    recv_bs = mrow["receiver_busansoom"]   # 부산숨 수령자(허브)
-    recv_am = mrow["receiver_amiyou"]      # 아미유 수령자
-    recv_lee = "강현석"                    # 성모/이진용 수령자(고정) — 필요 시 DB화 가능
+    recv_bs = mrow["receiver_busansoom"]
+    recv_am = mrow["receiver_amiyou"]
+    recv_lee = "강현석"
 
     tab_in, tab_out = st.tabs(["입력", "정산"])
 
@@ -1479,8 +1448,9 @@ with tab3:
     with tab_in:
         st.markdown("#### 월별 입력")
 
-        # 기본 설정
-        with st.expander("기본 설정", expanded=True):
+        # 기본 설정 (expander → container)
+        with st.container(border=True):
+            st.markdown("##### 기본 설정")
             c1,c2,c3 = st.columns(3)
             nf = c1.number_input("성모 고정액(만원)", value=sungmo_fixed, step=10, key="settle_fixed")
             nb = c2.selectbox("부산숨 수령자", members_all, index=members_all.index(recv_bs), key="settle_bs_recv")
@@ -1490,8 +1460,9 @@ with tab3:
                 st.success("저장되었습니다."); st.rerun()
             st.caption("이진용외과 수령자: 강현석 (고정)")
 
-        # 팀비 입력
-        with st.expander("팀비 사용 입력", expanded=True):
+        # 팀비 사용 입력 (expander → container)
+        with st.container(border=True):
+            st.markdown("##### 팀비 사용 입력")
             c1,c2,c3 = st.columns([1,1,2])
             w = c1.selectbox("사용자", members_all, key="teamfee_user")
             a = c2.text_input("금액(만원)", "", key="teamfee_amount")
@@ -1503,25 +1474,26 @@ with tab3:
                 else:
                     st.error("금액은 숫자로 입력해주세요.")
 
-        st.markdown("##### 팀비 사용 내역")
-        tf = sb_list("settlement_teamfee", ym_key)
-        if not tf:
-            st.caption("아직 팀비 사용 내역이 없습니다.")
-        else:
-            for r in tf:
-                c1,c2,c3,c4,c5 = st.columns([1,1,2,1,1])
-                c1.write(r["who"]); c2.write(f"{r['amount']}만원"); c3.write(r["memo"])
-                if c4.button("수정", key=f"tf_edit_{r['id']}"):
-                    new_a = st.text_input("금액", str(r["amount"]), key=f"tf_na_{r['id']}")
-                    new_m = st.text_input("메모", r["memo"], key=f"tf_nm_{r['id']}")
-                    if st.button("저장", key=f"tf_save_{r['id']}"):
-                        sb_update("settlement_teamfee", r["id"], {"amount": int(new_a), "memo": new_m})
-                        st.rerun()
-                if c5.button("삭제", key=f"tf_del_{r['id']}"):
-                    sb_delete("settlement_teamfee", r["id"]); st.rerun()
+            st.markdown("###### 팀비 사용 내역")
+            tf = sb_list("settlement_teamfee", ym_key)
+            if not tf:
+                st.caption("아직 팀비 사용 내역이 없습니다.")
+            else:
+                for r in tf:
+                    c1,c2,c3,c4,c5 = st.columns([1,1,2,1,1])
+                    c1.write(r["who"]); c2.write(f"{r['amount']}만원"); c3.write(r["memo"])
+                    if c4.button("수정", key=f"tf_edit_{r['id']}"):
+                        new_a = st.text_input("금액", str(r["amount"]), key=f"tf_na_{r['id']}")
+                        new_m = st.text_input("메모", r["memo"], key=f"tf_nm_{r['id']}")
+                        if st.button("저장", key=f"tf_save_{r['id']}"):
+                            sb_update("settlement_teamfee", r["id"], {"amount": int(new_a), "memo": new_m})
+                            st.rerun()
+                    if c5.button("삭제", key=f"tf_del_{r['id']}"):
+                        sb_delete("settlement_teamfee", r["id"]); st.rerun()
 
-        # 팀원 간 이체 입력
-        with st.expander("팀원 간 이체 입력", expanded=True):
+        # 팀원 간 이체 입력 (expander → container)
+        with st.container(border=True):
+            st.markdown("##### 팀원 간 이체 입력")
             c1,c2,c3,c4 = st.columns([1,1,1,2])
             f = c1.selectbox("보낸 사람", members_all, key="transfer_from")
             t = c2.selectbox("받는 사람", [x for x in members_all if x!=f], key="transfer_to")
@@ -1534,17 +1506,16 @@ with tab3:
                 else:
                     st.error("금액은 숫자로 입력해주세요.")
 
-        st.markdown("##### 이체 내역")
-        tr = sb_list("settlement_transfer", ym_key)
-        if not tr:
-            st.caption("등록된 이체 내역이 없습니다.")
-        else:
-            for r in tr:
-                c1,c2,c3,c4,c5 = st.columns([1,0.3,1,2,1])
-                c1.write(r["from"]); c2.write("→"); c3.write(r["to"]); c4.write(r["memo"]); c5.write(f"{r['amount']}만원")
-                if c5.button("삭제", key=f"tr_del_{r['id']}"):
-                    sb_delete("settlement_transfer", r["id"]); st.rerun()
-
+            st.markdown("###### 이체 내역")
+            tr = sb_list("settlement_transfer", ym_key)
+            if not tr:
+                st.caption("등록된 이체 내역이 없습니다.")
+            else:
+                for r in tr:
+                    c1,c2,c3,c4,c5 = st.columns([1,0.3,1,2,1])
+                    c1.write(r["from"]); c2.write("→"); c3.write(r["to"]); c4.write(r["memo"]); c5.write(f"{r['amount']}만원")
+                    if c5.button("삭제", key=f"tr_del_{r['id']}"):
+                        sb_delete("settlement_transfer", r["id"]); st.rerun()
     # ==================== 정산 ====================
     with tab_out:
         st.markdown("#### 정산 결과")
