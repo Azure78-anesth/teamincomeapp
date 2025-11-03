@@ -119,22 +119,41 @@ hr, .stDivider{ margin:.75rem 0; }
 .mcard { padding:10px 12px; border:1px solid var(--border); border-radius:12px; background: var(--bg); }
 .mtitle { color: var(--muted); font-size:.92rem; margin-bottom:4px; }
 .mvalue { font-size:1.25rem; font-weight:700; }
-</style>
-/* ───────── 아이콘 폰트 깨짐 방지 ───────── */
+
+/* ───────── 아이콘 폰트 깨짐 방지(리거처 예외 처리) ───────── */
 .material-icons,
 .material-symbols-outlined,
 .material-symbols-rounded,
-.material-symbols-sharp {
+.material-symbols-sharp,
+i.material-icons,
+span.material-icons{
   font-family: 'Material Icons', 'Material Symbols Outlined' !important;
-  font-style: normal; font-weight: normal; line-height: 1;
+  font-style: normal !important;
+  font-weight: normal !important;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  direction: ltr;
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
-  white-space: nowrap;
-  overflow-wrap: normal;
-  word-break: normal;
 }
 
+/* Streamlit expander/summary 안에서도 아이콘은 줄바꿈 금지 */
+details > summary .material-icons,
+details > summary .material-symbols-outlined,
+.streamlit-expanderHeader .material-icons,
+.streamlit-expanderHeader .material-symbols-outlined{
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+</style>
 """, unsafe_allow_html=True)
+
 
 # ============================
 # Helpers
