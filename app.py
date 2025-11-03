@@ -19,6 +19,10 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+st.markdown("""
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
+""", unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -116,6 +120,20 @@ hr, .stDivider{ margin:.75rem 0; }
 .mtitle { color: var(--muted); font-size:.92rem; margin-bottom:4px; }
 .mvalue { font-size:1.25rem; font-weight:700; }
 </style>
+/* ───────── 아이콘 폰트 깨짐 방지 ───────── */
+.material-icons,
+.material-symbols-outlined,
+.material-symbols-rounded,
+.material-symbols-sharp {
+  font-family: 'Material Icons', 'Material Symbols Outlined' !important;
+  font-style: normal; font-weight: normal; line-height: 1;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 """, unsafe_allow_html=True)
 
 # ============================
