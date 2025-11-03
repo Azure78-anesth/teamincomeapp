@@ -1329,7 +1329,7 @@ with tab5:
 
 
 # ============================
-# Tab 3: 정산 (항상 펼쳐진 버전)
+# Tab 3: 정산 (항상 펼침 + 수정 반영 + 삭제 확인 포함)
 # ============================
 with tab3:
     st.markdown("### 정산")
@@ -1340,6 +1340,16 @@ with tab3:
     from datetime import datetime, timezone
     import pandas as pd
     import unicodedata, re
+
+    try:
+        NOW_KST
+    except NameError:
+        from datetime import datetime as _dt
+        try:
+            from zoneinfo import ZoneInfo
+            NOW_KST = _dt.now(ZoneInfo("Asia/Seoul"))
+        except Exception:
+            NOW_KST = _dt.now()
 
     SUPA_URL  = st.secrets["SUPABASE_URL"]
     SUPA_KEY  = st.secrets["SUPABASE_ANON_KEY"]
@@ -1448,7 +1458,7 @@ with tab3:
     with tab_in:
         st.markdown("#### 월별 입력")
 
-        # 기본 설정 (expander → container)
+        # 기본 설정
         with st.container(border=True):
             st.markdown("##### 기본 설정")
             c1,c2,c3 = st.columns(3)
@@ -1460,7 +1470,7 @@ with tab3:
                 st.success("저장되었습니다."); st.rerun()
             st.caption("이진용외과 수령자: 강현석 (고정)")
 
-        # 팀비 사용 입력 (expander → container)
+        # 팀비 사용
         with st.container(border=True):
             st.markdown("##### 팀비 사용 입력")
             c1,c2,c3 = st.columns([1,1,2])
@@ -1487,11 +1497,12 @@ with tab3:
                         new_m = st.text_input("메모", r["memo"], key=f"tf_nm_{r['id']}")
                         if st.button("저장", key=f"tf_save_{r['id']}"):
                             sb_update("settlement_teamfee", r["id"], {"amount": int(new_a), "memo": new_m})
-                            st.rerun()
+                            st.success("수정되었습니다."); st.rerun()
                     if c5.button("삭제", key=f"tf_del_{r['id']}"):
-                        sb_delete("settlement_teamfee", r["id"]); st.rerun()
+                        if st.confirm("정말 삭제하시겠습니까?"):
+                            sb_delete("settlement_teamfee", r["id"]); st.rerun()
 
-        # 팀원 간 이체 입력 (expander → container)
+        # 팀원 간 이체
         with st.container(border=True):
             st.markdown("##### 팀원 간 이체 입력")
             c1,c2,c3,c4 = st.columns([1,1,1,2])
@@ -1512,10 +1523,36 @@ with tab3:
                 st.caption("등록된 이체 내역이 없습니다.")
             else:
                 for r in tr:
-                    c1,c2,c3,c4,c5 = st.columns([1,0.3,1,2,1])
+                    c1,c2,c3,c4,c5,c6 = st.columns([1,0.3,1,2,1,1])
                     c1.write(r["from"]); c2.write("→"); c3.write(r["to"]); c4.write(r["memo"]); c5.write(f"{r['amount']}만원")
-                    if c5.button("삭제", key=f"tr_del_{r['id']}"):
-                        sb_delete("settlement_transfer", r["id"]); st.rerun()
+
+                    edit_key = f"edit_state_{r['id']}"
+                    if edit_key not in st.session_state:
+                        st.session_state[edit_key] = False
+
+                    # 수정 버튼
+                    if c5.button("수정", key=f"tr_edit_{r['id']}"):
+                        st.session_state[edit_key] = not st.session_state[edit_key]
+
+                    # 수정 폼
+                    if st.session_state[edit_key]:
+                        ec1,ec2,ec3 = st.columns([1,2,1])
+                        new_a = ec1.text_input("금액", str(r["amount"]), key=f"tr_na_{r['id']}")
+                        new_m = ec2.text_input("메모", r["memo"], key=f"tr_nm_{r['id']}")
+                        if ec3.button("저장", key=f"tr_save_{r['id']}"):
+                            try:
+                                amt = int(str(new_a).strip())
+                                sb_update("settlement_transfer", r["id"], {"amount": amt, "memo": new_m})
+                                st.success("수정되었습니다.")
+                                st.session_state[edit_key] = False
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"수정 실패: {e}")
+
+                    # 삭제 버튼 (확인)
+                    if c6.button("삭제", key=f"tr_del_{r['id']}"):
+                        if st.confirm("정말 삭제하시겠습니까?"):
+                            sb_delete("settlement_transfer", r["id"]); st.rerun()
     # ==================== 정산 ====================
     with tab_out:
         st.markdown("#### 정산 결과")
