@@ -1335,12 +1335,30 @@ with tab3:
     st.markdown("### 정산")
 
     # ───────── 렌더링 보정 (웨일 대응) ─────────
-    st.markdown("""
-    <style>
-    details > summary { line-height:1.5!important;white-space:normal!important;}
-    .streamlit-expanderHeader p{line-height:1.5!important;white-space:normal!important;word-break:keep-all;overflow-wrap:anywhere;}
-    </style>
-    """, unsafe_allow_html=True)
+  # ───────── 렌더링 보정 (웨일 대응) ─────────
+st.markdown("""
+<style>
+/* ✅ summary 전체에 white-space 강제 금지: 아이콘까지 텍스트로 취급되는 걸 막음 */
+details > summary { line-height:1.5!important; }
+
+/* ✅ 실제 텍스트(p)에는 줄바꿈/래핑 허용 */
+.streamlit-expanderHeader p{
+  line-height:1.5!important;
+  white-space:normal!important;
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+}
+
+/* ✅ summary 안의 아이콘은 절대 줄바꾸지 않게 보호 (클래스가 있을 때) */
+details > summary .material-icons,
+details > summary .material-symbols-outlined{
+  white-space:nowrap!important;
+  overflow-wrap:normal!important;
+  word-break:normal!important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
     # ───────── Supabase 연결 ─────────
     from supabase import create_client
